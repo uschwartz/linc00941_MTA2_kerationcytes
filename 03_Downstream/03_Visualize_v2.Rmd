@@ -1,0 +1,1602 @@
+---
+title: "MTA2 ChIP seq Visualisation in Keratinocytes"
+author: "Uwe Schwartz"
+date: '2023-06-15'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+work.path<- "/Volumes/PromisePegasus/_Service_/S036_skin_MTA_figures/"
+knitr::opts_knit$set(root.dir =work.path)
+out.path<-paste0(work.path,"analysis/Figure4/genomeTracks/")
+dir.create(out.path, recursive = T, showWarnings = F)
+```
+## Dependencies & Libraries
+
+#### Load packages
+```{r libraries, message=FALSE}
+library(rtracklayer)
+library(Gviz)
+library(stringr)
+
+```
+
+```{r Gviz common options}
+scheme <- getScheme()
+scheme$GdObject$col.axis="black"
+scheme$GdObject$col.title="black"
+scheme$DataTrack$col.title="black"
+scheme$AnnotationTrack$col.title="black"
+scheme$GdObject$background.title="transparent"
+
+addScheme(scheme, "myScheme")
+options(Gviz.scheme = "myScheme")
+
+```
+
+##Analysis
+###KRT1
+```{r make Tracks}
+## region to plot
+chr<-"chr12"
+start<-52670039
+end<-52680696
+genome<-"hg38"
+
+gr.oi<-GRanges(seqnames =chr,
+               ranges = IRanges(start=start, end=end),
+                )
+gr.oi.ens<-GRanges(seqnames =str_remove(chr,"chr"),
+               ranges = IRanges(start=start, end=end))
+
+### Genome Annotation #######
+ideoTrack <- IdeogramTrack(genome="hg38", chromosome=chr, showId=T,
+                           fontcolor="black", cex=1)
+axisTrack <- GenomeAxisTrack( col="black", cex=0.7, fontcolor="black")
+
+
+### Gene Annotation
+biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+                                    start=start, end=end,
+                                    name="RefSeq", showId=T,
+                                    cex=1.5, fontcolor.group="black",
+                                    filter=list(with_refseq_mrna=TRUE))
+
+
+### MTA2 ChIP
+MTA2.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_pooled/MTA2_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(MTA2.bw)<-paste0("chr",seqlevels(MTA2.bw))
+
+dTrack.mta2<-DataTrack(MTA2.bw, name="MTA2", type="polygon",
+                       col="#357EBD", fill.mountain=c("#357EBD","#357EBD"))
+
+
+#########################################
+
+## called MTA2 peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak, which=gr.oi.ens)
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+aTrack.mta.peaks<-AnnotationTrack(mta2.peaks, name="MTA2 peaks", fill="#357EBD",
+                                  col="black")
+
+#########################################
+
+## chromatin states
+chromHMM<- import("data/annotation/chromHMM/E057_15_coreMarks_hg38lift_dense.bed",
+                        which=gr.oi)
+aTrack.chromHMM<-AnnotationTrack(chromHMM, name="chromatin states")
+
+
+hmmTrack <- AnnotationTrack(chromHMM, id = chromHMM$name, stacking = "dense", 
+                    feature = chromHMM$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM",
+                    "#C0C0C0"="#C0C0C0","#FFFFFF"="#FFFFFF","#FFFF00"="#FFFF00",
+                    "#808080"="#808080","#FF4500"="#FF4500","#FF0000"="#FF0000",
+                    "#BDB76B"= "#BDB76B","#006400"="#006400","#8A91D0"="#8A91D0",
+                    "#E9967A"="#E9967A",
+                    "#CD5C5C"= "#CD5C5C")
+
+
+###### H3K27me3 #####
+H3K27me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF400FLX_H3K27me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27me3<-DataTrack(H3K27me3.bw, name="H3K27me3", type="polygon",
+                       col="#8E8E8D", fill.mountain=c("#8E8E8D","#8E8E8D"),
+                       ylim=c(0,max(c(5,H3K27me3.bw$score))))
+
+
+###### H3K27ac #####
+H3K27ac.bw<-import.bw(con = "data/annotation/HistoneMod_E058/ENCFF027UPV_H3K27ac.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27ac<-DataTrack(H3K27ac.bw, name="H3K27ac", type="polygon",
+                       col="#FEA22B", fill.mountain=c("#FEA22B","#FEA22B"),
+                       ylim=c(0,max(c(5,H3K27ac.bw$score))))
+
+###### H3K4me1 #####
+H3K4me1.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF319BIJ_H3K4me1.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me1<-DataTrack(H3K4me1.bw, name="H3K4me1", type="polygon",
+                       col="salmon", fill.mountain=c("salmon","salmon"),
+                       ylim=c(0,max(c(5,H3K4me1.bw$score))))
+
+###### H3K4me3 #####
+H3K4me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF517FHJ_H3K4me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me3<-DataTrack(H3K4me3.bw, name="H3K4me3", type="polygon",
+                       col="#D43F39", fill.mountain=c("#D43F39","#D43F39"),
+                       ylim=c(0,max(c(5,H3K4me3.bw$score))))
+
+
+### Transcription ###
+RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF804BRH_RNAseqMinus.bigwig", 
+              selection=BigWigSelection(gr.oi))
+
+dTrack.Pol<-DataTrack(RNA.bw, name="poly(A) RNA", type="polygon",
+                       col="#5CB85B", fill.mountain=c("#5CB85B","#5CB85B"),
+                      ylim=c(0,0.2))
+
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+
+pdf(paste0(out.path,"KRT1.pdf"),width = 5, height = 7)
+    plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+dev.off()
+```
+
+
+###FOXE1
+```{r make Tracks FOXE1}
+## region to plot
+chr<-"chr9"
+start<-97849040
+end<-97859084
+genome<-"hg38"
+
+gr.oi<-GRanges(seqnames =chr,
+               ranges = IRanges(start=start, end=end),
+                )
+gr.oi.ens<-GRanges(seqnames =str_remove(chr,"chr"),
+               ranges = IRanges(start=start, end=end))
+
+### Genome Annotation #######
+ideoTrack <- IdeogramTrack(genome="hg38", chromosome=chr, showId=T,
+                           fontcolor="black", cex=1)
+axisTrack <- GenomeAxisTrack( col="black", cex=0.7, fontcolor="black")
+
+
+### Gene Annotation
+biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+                                    start=start, end=end,
+                                    name="RefSeq", showId=T,
+                                    cex=1.5, fontcolor.group="black",
+                                    filter=list(with_refseq_mrna=TRUE))
+
+
+### MTA2 ChIP
+MTA2.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_pooled/MTA2_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(MTA2.bw)<-paste0("chr",seqlevels(MTA2.bw))
+
+dTrack.mta2<-DataTrack(MTA2.bw, name="MTA2", type="polygon",
+                       col="#357EBD", fill.mountain=c("#357EBD","#357EBD"))
+
+
+#########################################
+
+## called MTA2 peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak, which=gr.oi.ens)
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+aTrack.mta.peaks<-AnnotationTrack(mta2.peaks, name="MTA2 peaks", fill="#357EBD",
+                                  col="black")
+
+#########################################
+
+## chromatin states
+chromHMM<- import("data/annotation/chromHMM/E057_15_coreMarks_hg38lift_dense.bed",
+                        which=gr.oi)
+aTrack.chromHMM<-AnnotationTrack(chromHMM, name="chromatin states")
+
+
+hmmTrack <- AnnotationTrack(chromHMM, id = chromHMM$name, stacking = "dense", 
+                    feature = chromHMM$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM",
+                    "#C0C0C0"="#C0C0C0","#FFFFFF"="#FFFFFF","#FFFF00"="#FFFF00",
+                    "#808080"="#808080","#FF4500"="#FF4500","#FF0000"="#FF0000",
+                    "#BDB76B"= "#BDB76B","#006400"="#006400","#8A91D0"="#8A91D0",
+                    "#E9967A"="#E9967A",
+                    "#CD5C5C"= "#CD5C5C")
+
+
+###### H3K27me3 #####
+H3K27me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF400FLX_H3K27me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27me3<-DataTrack(H3K27me3.bw, name="H3K27me3", type="polygon",
+                       col="#8E8E8D", fill.mountain=c("#8E8E8D","#8E8E8D"),
+                       ylim=c(0,max(c(5,H3K27me3.bw$score))))
+
+
+###### H3K27ac #####
+H3K27ac.bw<-import.bw(con = "data/annotation/HistoneMod_E058/ENCFF027UPV_H3K27ac.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27ac<-DataTrack(H3K27ac.bw, name="H3K27ac", type="polygon",
+                       col="#FEA22B", fill.mountain=c("#FEA22B","#FEA22B"),
+                       ylim=c(0,max(c(5,H3K27ac.bw$score))))
+
+###### H3K4me1 #####
+H3K4me1.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF319BIJ_H3K4me1.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me1<-DataTrack(H3K4me1.bw, name="H3K4me1", type="polygon",
+                       col="salmon", fill.mountain=c("salmon","salmon"),
+                       ylim=c(0,max(c(5,H3K4me1.bw$score))))
+
+###### H3K4me3 #####
+H3K4me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF517FHJ_H3K4me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me3<-DataTrack(H3K4me3.bw, name="H3K4me3", type="polygon",
+                       col="#D43F39", fill.mountain=c("#D43F39","#D43F39"),
+                       ylim=c(0,max(c(5,H3K4me3.bw$score))))
+
+
+### Transcription ###
+RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF283IQC_RNAseqPlus.bigwig", 
+              selection=BigWigSelection(gr.oi))
+
+dTrack.Pol<-DataTrack(RNA.bw, name="poly(A) RNA", type="polygon",
+                       col="#5CB85B", fill.mountain=c("#5CB85B","#5CB85B"),
+                      ylim=c(0,0.2))
+
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+
+pdf(paste0(out.path,"FOXE1.pdf"),width = 5, height = 7)
+    plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+dev.off()
+```
+
+
+##EPHA2
+```{r make Tracks EPHA2}
+
+## region to plot
+chr<-"chr1"
+start<-16138356
+end<-16158165
+genome<-"hg38"
+
+gr.oi<-GRanges(seqnames =chr,
+               ranges = IRanges(start=start, end=end),
+                )
+gr.oi.ens<-GRanges(seqnames =str_remove(chr,"chr"),
+               ranges = IRanges(start=start, end=end))
+
+### Genome Annotation #######
+ideoTrack <- IdeogramTrack(genome="hg38", chromosome=chr, showId=T,
+                           fontcolor="black", cex=1)
+axisTrack <- GenomeAxisTrack( col="black", cex=0.7, fontcolor="black")
+
+
+### Gene Annotation
+# biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+#                                     start=start, end=end,
+#                                     name="RefSeq", showId=T,
+#                                     cex=1.5, fontcolor.group="black",
+#                                     filter=list(with_refseq_mrna=TRUE))
+### Gene Annotation
+biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+                                    start=start, end=end,
+                                    name="RefSeq", showId=T,
+                                    cex=1.5, fontcolor.group="black",
+                                    just.group="left")
+
+### MTA2 ChIP
+MTA2.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_pooled/MTA2_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(MTA2.bw)<-paste0("chr",seqlevels(MTA2.bw))
+
+dTrack.mta2<-DataTrack(MTA2.bw, name="MTA2", type="polygon",
+                       col="#357EBD", fill.mountain=c("#357EBD","#357EBD"))
+
+
+#########################################
+
+## called MTA2 peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak, which=gr.oi.ens)
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+aTrack.mta.peaks<-AnnotationTrack(mta2.peaks, name="MTA2 peaks", fill="#357EBD",
+                                  col="black")
+
+#########################################
+
+## chromatin states
+chromHMM<- import("data/annotation/chromHMM/E057_15_coreMarks_hg38lift_dense.bed",
+                        which=gr.oi)
+aTrack.chromHMM<-AnnotationTrack(chromHMM, name="chromatin states")
+
+
+hmmTrack <- AnnotationTrack(chromHMM, id = chromHMM$name, stacking = "dense", 
+                    feature = chromHMM$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM",
+                    "#C0C0C0"="#C0C0C0","#FFFFFF"="#FFFFFF","#FFFF00"="#FFFF00",
+                    "#808080"="#808080","#FF4500"="#FF4500","#FF0000"="#FF0000",
+                    "#BDB76B"= "#BDB76B","#006400"="#006400","#8A91D0"="#8A91D0",
+                    "#E9967A"="#E9967A","#C2E105"="#C2E105","#32CD32"="#32CD32",
+                    "#CD5C5C"= "#CD5C5C")
+
+
+###### H3K27me3 #####
+H3K27me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF400FLX_H3K27me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27me3<-DataTrack(H3K27me3.bw, name="H3K27me3", type="polygon",
+                       col="#8E8E8D", fill.mountain=c("#8E8E8D","#8E8E8D"),
+                       ylim=c(0,max(c(5,H3K27me3.bw$score))))
+
+
+###### H3K27ac #####
+H3K27ac.bw<-import.bw(con = "data/annotation/HistoneMod_E058/ENCFF027UPV_H3K27ac.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27ac<-DataTrack(H3K27ac.bw, name="H3K27ac", type="polygon",
+                       col="#FEA22B", fill.mountain=c("#FEA22B","#FEA22B"),
+                       ylim=c(0,max(c(5,H3K27ac.bw$score))))
+
+###### H3K4me1 #####
+H3K4me1.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF319BIJ_H3K4me1.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me1<-DataTrack(H3K4me1.bw, name="H3K4me1", type="polygon",
+                       col="salmon", fill.mountain=c("salmon","salmon"),
+                       ylim=c(0,max(c(5,H3K4me1.bw$score))))
+
+###### H3K4me3 #####
+H3K4me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF517FHJ_H3K4me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me3<-DataTrack(H3K4me3.bw, name="H3K4me3", type="polygon",
+                       col="#D43F39", fill.mountain=c("#D43F39","#D43F39"),
+                       ylim=c(0,max(c(5,H3K4me3.bw$score))))
+
+
+### Transcription ###
+#RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF283IQC_RNAseqPlus.bigwig",
+#                  selection=BigWigSelection(gr.oi))
+RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF804BRH_RNAseqMinus.bigwig", 
+              selection=BigWigSelection(gr.oi))
+
+dTrack.Pol<-DataTrack(RNA.bw, name="poly(A) RNA", type="polygon",
+                       col="#5CB85B", fill.mountain=c("#5CB85B","#5CB85B"),
+                      ylim=c(0,max(c(0.2,RNA.bw$score))))
+
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+
+pdf(paste0(out.path,"EPHA2.pdf"),width = 5, height = 7)
+    plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+dev.off()
+```
+
+
+## BCL11B
+```{r make Tracks BCL11B}
+
+## region to plot
+chr<-"chr14"
+start<-99260300
+end<-99277969
+genome<-"hg38"
+
+gr.oi<-GRanges(seqnames =chr,
+               ranges = IRanges(start=start, end=end),
+                )
+gr.oi.ens<-GRanges(seqnames =str_remove(chr,"chr"),
+               ranges = IRanges(start=start, end=end))
+
+### Genome Annotation #######
+ideoTrack <- IdeogramTrack(genome="hg38", chromosome=chr, showId=T,
+                           fontcolor="black", cex=1)
+axisTrack <- GenomeAxisTrack( col="black", cex=0.7, fontcolor="black")
+
+
+### Gene Annotation
+biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+                                    start=start, end=end,
+                                    name="RefSeq", showId=T,
+                                    cex=1.5, fontcolor.group="black",
+                                    filter=list(with_refseq_mrna=TRUE))
+
+
+### MTA2 ChIP
+MTA2.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_pooled/MTA2_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(MTA2.bw)<-paste0("chr",seqlevels(MTA2.bw))
+
+dTrack.mta2<-DataTrack(MTA2.bw, name="MTA2", type="polygon",
+                       col="#357EBD", fill.mountain=c("#357EBD","#357EBD"))
+
+
+#########################################
+
+## called MTA2 peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak, which=gr.oi.ens)
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+aTrack.mta.peaks<-AnnotationTrack(mta2.peaks, name="MTA2 peaks", fill="#357EBD",
+                                  col="black")
+
+#########################################
+
+## chromatin states
+chromHMM<- import("data/annotation/chromHMM/E057_15_coreMarks_hg38lift_dense.bed",
+                        which=gr.oi)
+aTrack.chromHMM<-AnnotationTrack(chromHMM, name="chromatin states")
+
+
+hmmTrack <- AnnotationTrack(chromHMM, id = chromHMM$name, stacking = "dense", 
+                    feature = chromHMM$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM",
+                    "#C0C0C0"="#C0C0C0","#FFFFFF"="#FFFFFF","#FFFF00"="#FFFF00",
+                    "#808080"="#808080","#FF4500"="#FF4500","#FF0000"="#FF0000",
+                    "#BDB76B"= "#BDB76B","#006400"="#006400","#8A91D0"="#8A91D0",
+                    "#E9967A"="#E9967A",
+                    "#CD5C5C"= "#CD5C5C")
+
+
+###### H3K27me3 #####
+H3K27me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF400FLX_H3K27me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27me3<-DataTrack(H3K27me3.bw, name="H3K27me3", type="polygon",
+                       col="#8E8E8D", fill.mountain=c("#8E8E8D","#8E8E8D"),
+                       ylim=c(0,max(c(5,H3K27me3.bw$score))))
+
+
+###### H3K27ac #####
+H3K27ac.bw<-import.bw(con = "data/annotation/HistoneMod_E058/ENCFF027UPV_H3K27ac.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27ac<-DataTrack(H3K27ac.bw, name="H3K27ac", type="polygon",
+                       col="#FEA22B", fill.mountain=c("#FEA22B","#FEA22B"),
+                       ylim=c(0,max(c(5,H3K27ac.bw$score))))
+
+###### H3K4me1 #####
+H3K4me1.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF319BIJ_H3K4me1.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me1<-DataTrack(H3K4me1.bw, name="H3K4me1", type="polygon",
+                       col="salmon", fill.mountain=c("salmon","salmon"),
+                       ylim=c(0,max(c(5,H3K4me1.bw$score))))
+
+###### H3K4me3 #####
+H3K4me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF517FHJ_H3K4me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me3<-DataTrack(H3K4me3.bw, name="H3K4me3", type="polygon",
+                       col="#D43F39", fill.mountain=c("#D43F39","#D43F39"),
+                       ylim=c(0,max(c(5,H3K4me3.bw$score))))
+
+
+### Transcription ###
+#RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF283IQC_RNAseqPlus.bigwig",
+#                  selection=BigWigSelection(gr.oi))
+RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF804BRH_RNAseqMinus.bigwig", 
+              selection=BigWigSelection(gr.oi))
+
+dTrack.Pol<-DataTrack(RNA.bw, name="poly(A) RNA", type="polygon",
+                       col="#5CB85B", fill.mountain=c("#5CB85B","#5CB85B"),
+                      ylim=c(0,max(c(0.2,RNA.bw$score))))
+
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+
+pdf(paste0(out.path,"BCL11B.pdf"),width = 5, height = 7)
+    plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+dev.off()
+```
+
+
+##FGFR2
+```{r make Tracks FGFR2}
+
+## region to plot
+chr<-"chr10"
+start<-121592569
+end<-121605231
+genome<-"hg38"
+
+gr.oi<-GRanges(seqnames =chr,
+               ranges = IRanges(start=start, end=end),
+                )
+gr.oi.ens<-GRanges(seqnames =str_remove(chr,"chr"),
+               ranges = IRanges(start=start, end=end))
+
+### Genome Annotation #######
+ideoTrack <- IdeogramTrack(genome="hg38", chromosome=chr, showId=T,
+                           fontcolor="black", cex=1)
+axisTrack <- GenomeAxisTrack( col="black", cex=0.7, fontcolor="black")
+
+
+### Gene Annotation
+biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+                                    start=start, end=end,
+                                    name="RefSeq", showId=T,
+                                    cex=1.5, fontcolor.group="black",
+                                    filter=list(with_refseq_mrna=TRUE))
+### Gene Annotation
+# biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+#                                     start=start, end=end,
+#                                     name="RefSeq", showId=T,
+#                                     cex=1.5, fontcolor.group="black",
+#                                     just.group="left")
+
+### MTA2 ChIP
+MTA2.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_pooled/MTA2_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(MTA2.bw)<-paste0("chr",seqlevels(MTA2.bw))
+
+dTrack.mta2<-DataTrack(MTA2.bw, name="MTA2", type="polygon",
+                       col="#357EBD", fill.mountain=c("#357EBD","#357EBD"))
+
+
+#########################################
+
+## called MTA2 peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak, which=gr.oi.ens)
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+aTrack.mta.peaks<-AnnotationTrack(mta2.peaks, name="MTA2 peaks", fill="#357EBD",
+                                  col="black")
+
+#########################################
+
+## chromatin states
+chromHMM<- import("data/annotation/chromHMM/E057_15_coreMarks_hg38lift_dense.bed",
+                        which=gr.oi)
+aTrack.chromHMM<-AnnotationTrack(chromHMM, name="chromatin states")
+
+
+hmmTrack <- AnnotationTrack(chromHMM, id = chromHMM$name, stacking = "dense", 
+                    feature = chromHMM$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM",
+                    "#C0C0C0"="#C0C0C0","#FFFFFF"="#FFFFFF","#FFFF00"="#FFFF00",
+                    "#808080"="#808080","#FF4500"="#FF4500","#FF0000"="#FF0000",
+                    "#BDB76B"= "#BDB76B","#006400"="#006400","#8A91D0"="#8A91D0",
+                    "#E9967A"="#E9967A","#C2E105"="#C2E105","#32CD32"="#32CD32",
+                    "#CD5C5C"= "#CD5C5C")
+
+
+###### H3K27me3 #####
+H3K27me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF400FLX_H3K27me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27me3<-DataTrack(H3K27me3.bw, name="H3K27me3", type="polygon",
+                       col="#8E8E8D", fill.mountain=c("#8E8E8D","#8E8E8D"),
+                       ylim=c(0,max(c(5,H3K27me3.bw$score))))
+
+
+###### H3K27ac #####
+H3K27ac.bw<-import.bw(con = "data/annotation/HistoneMod_E058/ENCFF027UPV_H3K27ac.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27ac<-DataTrack(H3K27ac.bw, name="H3K27ac", type="polygon",
+                       col="#FEA22B", fill.mountain=c("#FEA22B","#FEA22B"),
+                       ylim=c(0,max(c(5,H3K27ac.bw$score))))
+
+###### H3K4me1 #####
+H3K4me1.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF319BIJ_H3K4me1.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me1<-DataTrack(H3K4me1.bw, name="H3K4me1", type="polygon",
+                       col="salmon", fill.mountain=c("salmon","salmon"),
+                       ylim=c(0,max(c(5,H3K4me1.bw$score))))
+
+###### H3K4me3 #####
+H3K4me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF517FHJ_H3K4me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me3<-DataTrack(H3K4me3.bw, name="H3K4me3", type="polygon",
+                       col="#D43F39", fill.mountain=c("#D43F39","#D43F39"),
+                       ylim=c(0,max(c(5,H3K4me3.bw$score))))
+
+
+### Transcription ###
+#RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF283IQC_RNAseqPlus.bigwig",
+#                  selection=BigWigSelection(gr.oi))
+RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF804BRH_RNAseqMinus.bigwig", 
+              selection=BigWigSelection(gr.oi))
+
+dTrack.Pol<-DataTrack(RNA.bw, name="poly(A) RNA", type="polygon",
+                       col="#5CB85B", fill.mountain=c("#5CB85B","#5CB85B"),
+                      ylim=c(0,max(c(0.2,RNA.bw$score))))
+
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,3,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+
+pdf(paste0(out.path,"FGFR2.pdf"),width = 5, height = 7)
+    plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,3,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+dev.off()
+```
+
+##MAFB
+```{r make Tracks MAFB}
+		
+## region to plot
+chr<-"chr20"
+start<-40680387
+end<-40695838
+genome<-"hg38"
+
+gr.oi<-GRanges(seqnames =chr,
+               ranges = IRanges(start=start, end=end),
+                )
+gr.oi.ens<-GRanges(seqnames =str_remove(chr,"chr"),
+               ranges = IRanges(start=start, end=end))
+
+### Genome Annotation #######
+ideoTrack <- IdeogramTrack(genome="hg38", chromosome=chr, showId=T,
+                           fontcolor="black", cex=1)
+axisTrack <- GenomeAxisTrack( col="black", cex=0.7, fontcolor="black")
+
+
+### Gene Annotation
+# biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+#                                     start=start, end=end,
+#                                     name="RefSeq", showId=T,
+#                                     cex=1.5, fontcolor.group="black",
+#                                     filter=list(with_refseq_mrna=TRUE))
+### Gene Annotation
+biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+                                    start=start, end=end,
+                                    name="RefSeq", showId=T,
+                                    cex=1.5, fontcolor.group="black",
+                                    just.group="left")
+
+### MTA2 ChIP
+MTA2.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_pooled/MTA2_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(MTA2.bw)<-paste0("chr",seqlevels(MTA2.bw))
+
+dTrack.mta2<-DataTrack(MTA2.bw, name="MTA2", type="polygon",
+                       col="#357EBD", fill.mountain=c("#357EBD","#357EBD"))
+
+
+#########################################
+
+## called MTA2 peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak, which=gr.oi.ens)
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+aTrack.mta.peaks<-AnnotationTrack(mta2.peaks, name="MTA2 peaks", fill="#357EBD",
+                                  col="black")
+
+#########################################
+
+## chromatin states
+chromHMM<- import("data/annotation/chromHMM/E057_15_coreMarks_hg38lift_dense.bed",
+                        which=gr.oi)
+aTrack.chromHMM<-AnnotationTrack(chromHMM, name="chromatin states")
+
+
+hmmTrack <- AnnotationTrack(chromHMM, id = chromHMM$name, stacking = "dense", 
+                    feature = chromHMM$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM",
+                    "#C0C0C0"="#C0C0C0","#FFFFFF"="#FFFFFF","#FFFF00"="#FFFF00",
+                    "#808080"="#808080","#FF4500"="#FF4500","#FF0000"="#FF0000",
+                    "#BDB76B"= "#BDB76B","#006400"="#006400","#8A91D0"="#8A91D0",
+                    "#E9967A"="#E9967A","#C2E105"="#C2E105","#32CD32"="#32CD32",
+                    "#CD5C5C"= "#CD5C5C")
+
+
+###### H3K27me3 #####
+H3K27me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF400FLX_H3K27me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27me3<-DataTrack(H3K27me3.bw, name="H3K27me3", type="polygon",
+                       col="#8E8E8D", fill.mountain=c("#8E8E8D","#8E8E8D"),
+                       ylim=c(0,max(c(5,H3K27me3.bw$score))))
+
+
+###### H3K27ac #####
+H3K27ac.bw<-import.bw(con = "data/annotation/HistoneMod_E058/ENCFF027UPV_H3K27ac.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27ac<-DataTrack(H3K27ac.bw, name="H3K27ac", type="polygon",
+                       col="#FEA22B", fill.mountain=c("#FEA22B","#FEA22B"),
+                       ylim=c(0,max(c(5,H3K27ac.bw$score))))
+
+###### H3K4me1 #####
+H3K4me1.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF319BIJ_H3K4me1.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me1<-DataTrack(H3K4me1.bw, name="H3K4me1", type="polygon",
+                       col="salmon", fill.mountain=c("salmon","salmon"),
+                       ylim=c(0,max(c(5,H3K4me1.bw$score))))
+
+###### H3K4me3 #####
+H3K4me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF517FHJ_H3K4me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me3<-DataTrack(H3K4me3.bw, name="H3K4me3", type="polygon",
+                       col="#D43F39", fill.mountain=c("#D43F39","#D43F39"),
+                       ylim=c(0,max(c(5,H3K4me3.bw$score))))
+
+
+### Transcription ###
+#RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF283IQC_RNAseqPlus.bigwig",
+#                  selection=BigWigSelection(gr.oi))
+RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF804BRH_RNAseqMinus.bigwig", 
+              selection=BigWigSelection(gr.oi))
+
+dTrack.Pol<-DataTrack(RNA.bw, name="poly(A) RNA", type="polygon",
+                       col="#5CB85B", fill.mountain=c("#5CB85B","#5CB85B"),
+                      ylim=c(0,max(c(0.2,RNA.bw$score))))
+
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+
+pdf(paste0(out.path,"MAFB.pdf"),width = 5, height = 7)
+    plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+dev.off()
+```
+
+##SOX9
+```{r make Tracks SOX9}
+			
+## region to plot
+chr<-"chr17"
+start<-72106427
+end<-72128710
+genome<-"hg38"
+
+gr.oi<-GRanges(seqnames =chr,
+               ranges = IRanges(start=start, end=end),
+                )
+gr.oi.ens<-GRanges(seqnames =str_remove(chr,"chr"),
+               ranges = IRanges(start=start, end=end))
+
+### Genome Annotation #######
+ideoTrack <- IdeogramTrack(genome="hg38", chromosome=chr, showId=T,
+                           fontcolor="black", cex=1)
+axisTrack <- GenomeAxisTrack( col="black", cex=0.7, fontcolor="black")
+
+
+### Gene Annotation
+biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+                                    start=start, end=end,
+                                    name="RefSeq", showId=T,
+                                    cex=1.5, fontcolor.group="black",
+                                    filter=list(with_refseq_mrna=TRUE))
+# ### Gene Annotation
+# biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+#                                     start=start, end=end,
+#                                     name="RefSeq", showId=T,
+#                                     cex=1.5, fontcolor.group="black",
+#                                     just.group="left")
+
+### MTA2 ChIP
+MTA2.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_pooled/MTA2_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(MTA2.bw)<-paste0("chr",seqlevels(MTA2.bw))
+
+dTrack.mta2<-DataTrack(MTA2.bw, name="MTA2", type="polygon",
+                       col="#357EBD", fill.mountain=c("#357EBD","#357EBD"))
+
+
+#########################################
+
+## called MTA2 peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak, which=gr.oi.ens)
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+aTrack.mta.peaks<-AnnotationTrack(mta2.peaks, name="MTA2 peaks", fill="#357EBD",
+                                  col="black")
+
+#########################################
+
+## chromatin states
+chromHMM<- import("data/annotation/chromHMM/E057_15_coreMarks_hg38lift_dense.bed",
+                        which=gr.oi)
+aTrack.chromHMM<-AnnotationTrack(chromHMM, name="chromatin states")
+
+
+hmmTrack <- AnnotationTrack(chromHMM, id = chromHMM$name, stacking = "dense", 
+                    feature = chromHMM$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM",
+                    "#C0C0C0"="#C0C0C0","#FFFFFF"="#FFFFFF","#FFFF00"="#FFFF00",
+                    "#808080"="#808080","#FF4500"="#FF4500","#FF0000"="#FF0000",
+                    "#BDB76B"= "#BDB76B","#006400"="#006400","#8A91D0"="#8A91D0",
+                    "#E9967A"="#E9967A","#C2E105"="#C2E105","#32CD32"="#32CD32",
+                    "#CD5C5C"= "#CD5C5C")
+
+
+###### H3K27me3 #####
+H3K27me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF400FLX_H3K27me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27me3<-DataTrack(H3K27me3.bw, name="H3K27me3", type="polygon",
+                       col="#8E8E8D", fill.mountain=c("#8E8E8D","#8E8E8D"),
+                       ylim=c(0,max(c(5,H3K27me3.bw$score))))
+
+
+###### H3K27ac #####
+H3K27ac.bw<-import.bw(con = "data/annotation/HistoneMod_E058/ENCFF027UPV_H3K27ac.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27ac<-DataTrack(H3K27ac.bw, name="H3K27ac", type="polygon",
+                       col="#FEA22B", fill.mountain=c("#FEA22B","#FEA22B"),
+                       ylim=c(0,max(c(5,H3K27ac.bw$score))))
+
+###### H3K4me1 #####
+H3K4me1.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF319BIJ_H3K4me1.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me1<-DataTrack(H3K4me1.bw, name="H3K4me1", type="polygon",
+                       col="salmon", fill.mountain=c("salmon","salmon"),
+                       ylim=c(0,max(c(5,H3K4me1.bw$score))))
+
+###### H3K4me3 #####
+H3K4me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF517FHJ_H3K4me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me3<-DataTrack(H3K4me3.bw, name="H3K4me3", type="polygon",
+                       col="#D43F39", fill.mountain=c("#D43F39","#D43F39"),
+                       ylim=c(0,max(c(5,H3K4me3.bw$score))))
+
+
+### Transcription ###
+RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF283IQC_RNAseqPlus.bigwig",
+                 selection=BigWigSelection(gr.oi))
+# RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF804BRH_RNAseqMinus.bigwig", 
+#               selection=BigWigSelection(gr.oi))
+
+dTrack.Pol<-DataTrack(RNA.bw, name="poly(A) RNA", type="polygon",
+                       col="#5CB85B", fill.mountain=c("#5CB85B","#5CB85B"),
+                      ylim=c(0,max(c(0.2,RNA.bw$score))))
+
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+
+pdf(paste0(out.path,"SOX9.pdf"),width = 5, height = 7)
+    plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+dev.off()
+```
+
+##SFN
+```{r make Tracks SFN}
+		
+## region to plot
+chr<-"chr1"
+start<-26856683
+end<-26872441
+genome<-"hg38"
+
+gr.oi<-GRanges(seqnames =chr,
+               ranges = IRanges(start=start, end=end),
+                )
+gr.oi.ens<-GRanges(seqnames =str_remove(chr,"chr"),
+               ranges = IRanges(start=start, end=end))
+
+### Genome Annotation #######
+ideoTrack <- IdeogramTrack(genome="hg38", chromosome=chr, showId=T,
+                           fontcolor="black", cex=1)
+axisTrack <- GenomeAxisTrack( col="black", cex=0.7, fontcolor="black")
+
+
+### Gene Annotation
+biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+                                    start=start, end=end,
+                                    name="RefSeq", showId=T,
+                                    cex=1.5, fontcolor.group="black",
+                                    filter=list(with_refseq_mrna=TRUE))
+# ### Gene Annotation
+# biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+#                                     start=start, end=end,
+#                                     name="RefSeq", showId=T,
+#                                     cex=1.5, fontcolor.group="black",
+#                                     just.group="left")
+
+### MTA2 ChIP
+MTA2.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_pooled/MTA2_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(MTA2.bw)<-paste0("chr",seqlevels(MTA2.bw))
+
+dTrack.mta2<-DataTrack(MTA2.bw, name="MTA2", type="polygon",
+                       col="#357EBD", fill.mountain=c("#357EBD","#357EBD"))
+
+
+#########################################
+
+## called MTA2 peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak, which=gr.oi.ens)
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+aTrack.mta.peaks<-AnnotationTrack(mta2.peaks, name="MTA2 peaks", fill="#357EBD",
+                                  col="black")
+
+#########################################
+
+## chromatin states
+chromHMM<- import("data/annotation/chromHMM/E057_15_coreMarks_hg38lift_dense.bed",
+                        which=gr.oi)
+aTrack.chromHMM<-AnnotationTrack(chromHMM, name="chromatin states")
+
+
+hmmTrack <- AnnotationTrack(chromHMM, id = chromHMM$name, stacking = "dense", 
+                    feature = chromHMM$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM",
+                    "#C0C0C0"="#C0C0C0","#FFFFFF"="#FFFFFF","#FFFF00"="#FFFF00",
+                    "#808080"="#808080","#FF4500"="#FF4500","#FF0000"="#FF0000",
+                    "#BDB76B"= "#BDB76B","#006400"="#006400","#8A91D0"="#8A91D0",
+                    "#E9967A"="#E9967A","#C2E105"="#C2E105","#32CD32"="#32CD32",
+                    "#CD5C5C"= "#CD5C5C")
+
+
+###### H3K27me3 #####
+H3K27me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF400FLX_H3K27me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27me3<-DataTrack(H3K27me3.bw, name="H3K27me3", type="polygon",
+                       col="#8E8E8D", fill.mountain=c("#8E8E8D","#8E8E8D"),
+                       ylim=c(0,max(c(5,H3K27me3.bw$score))))
+
+
+###### H3K27ac #####
+H3K27ac.bw<-import.bw(con = "data/annotation/HistoneMod_E058/ENCFF027UPV_H3K27ac.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27ac<-DataTrack(H3K27ac.bw, name="H3K27ac", type="polygon",
+                       col="#FEA22B", fill.mountain=c("#FEA22B","#FEA22B"),
+                       ylim=c(0,max(c(5,H3K27ac.bw$score))))
+
+###### H3K4me1 #####
+H3K4me1.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF319BIJ_H3K4me1.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me1<-DataTrack(H3K4me1.bw, name="H3K4me1", type="polygon",
+                       col="salmon", fill.mountain=c("salmon","salmon"),
+                       ylim=c(0,max(c(5,H3K4me1.bw$score))))
+
+###### H3K4me3 #####
+H3K4me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF517FHJ_H3K4me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me3<-DataTrack(H3K4me3.bw, name="H3K4me3", type="polygon",
+                       col="#D43F39", fill.mountain=c("#D43F39","#D43F39"),
+                       ylim=c(0,max(c(5,H3K4me3.bw$score))))
+
+
+### Transcription ###
+RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF283IQC_RNAseqPlus.bigwig",
+                 selection=BigWigSelection(gr.oi))
+# RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF804BRH_RNAseqMinus.bigwig", 
+#               selection=BigWigSelection(gr.oi))
+
+dTrack.Pol<-DataTrack(RNA.bw, name="poly(A) RNA", type="polygon",
+                       col="#5CB85B", fill.mountain=c("#5CB85B","#5CB85B"),
+                      ylim=c(0,max(c(0.2,RNA.bw$score))))
+
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+
+pdf(paste0(out.path,"SFN.pdf"),width = 5, height = 7)
+    plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+dev.off()
+```
+
+##KLF4
+```{r make Tracks KLF4}
+
+## region to plot
+chr<-"chr9"
+start<-107479904
+end<-107495414
+genome<-"hg38"
+
+gr.oi<-GRanges(seqnames =chr,
+               ranges = IRanges(start=start, end=end),
+                )
+gr.oi.ens<-GRanges(seqnames =str_remove(chr,"chr"),
+               ranges = IRanges(start=start, end=end))
+
+### Genome Annotation #######
+ideoTrack <- IdeogramTrack(genome="hg38", chromosome=chr, showId=T,
+                           fontcolor="black", cex=1)
+axisTrack <- GenomeAxisTrack( col="black", cex=0.7, fontcolor="black")
+
+
+### Gene Annotation
+# biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+#                                     start=start, end=end,
+#                                     name="RefSeq", showId=T,
+#                                     cex=1.5, fontcolor.group="black",
+#                                     filter=list(with_refseq_mrna=TRUE))
+### Gene Annotation
+biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+                                    start=start, end=end,
+                                    name="RefSeq", showId=T,
+                                    cex=1.5, fontcolor.group="black",
+                                    just.group="left")
+
+### MTA2 ChIP
+MTA2.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_pooled/MTA2_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(MTA2.bw)<-paste0("chr",seqlevels(MTA2.bw))
+
+dTrack.mta2<-DataTrack(MTA2.bw, name="MTA2", type="polygon",
+                       col="#357EBD", fill.mountain=c("#357EBD","#357EBD"))
+
+
+#########################################
+
+## called MTA2 peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak, which=gr.oi.ens)
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+aTrack.mta.peaks<-AnnotationTrack(mta2.peaks, name="MTA2 peaks", fill="#357EBD",
+                                  col="black")
+
+#########################################
+
+## chromatin states
+chromHMM<- import("data/annotation/chromHMM/E057_15_coreMarks_hg38lift_dense.bed",
+                        which=gr.oi)
+aTrack.chromHMM<-AnnotationTrack(chromHMM, name="chromatin states")
+
+
+hmmTrack <- AnnotationTrack(chromHMM, id = chromHMM$name, stacking = "dense", 
+                    feature = chromHMM$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM",
+                    "#C0C0C0"="#C0C0C0","#FFFFFF"="#FFFFFF","#FFFF00"="#FFFF00",
+                    "#808080"="#808080","#FF4500"="#FF4500","#FF0000"="#FF0000",
+                    "#BDB76B"= "#BDB76B","#006400"="#006400","#8A91D0"="#8A91D0",
+                    "#E9967A"="#E9967A","#C2E105"="#C2E105","#32CD32"="#32CD32",
+                    "#CD5C5C"= "#CD5C5C")
+
+
+###### H3K27me3 #####
+H3K27me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF400FLX_H3K27me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27me3<-DataTrack(H3K27me3.bw, name="H3K27me3", type="polygon",
+                       col="#8E8E8D", fill.mountain=c("#8E8E8D","#8E8E8D"),
+                       ylim=c(0,max(c(5,H3K27me3.bw$score))))
+
+
+###### H3K27ac #####
+H3K27ac.bw<-import.bw(con = "data/annotation/HistoneMod_E058/ENCFF027UPV_H3K27ac.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27ac<-DataTrack(H3K27ac.bw, name="H3K27ac", type="polygon",
+                       col="#FEA22B", fill.mountain=c("#FEA22B","#FEA22B"),
+                       ylim=c(0,max(c(5,H3K27ac.bw$score))))
+
+###### H3K4me1 #####
+H3K4me1.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF319BIJ_H3K4me1.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me1<-DataTrack(H3K4me1.bw, name="H3K4me1", type="polygon",
+                       col="salmon", fill.mountain=c("salmon","salmon"),
+                       ylim=c(0,max(c(5,H3K4me1.bw$score))))
+
+###### H3K4me3 #####
+H3K4me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF517FHJ_H3K4me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me3<-DataTrack(H3K4me3.bw, name="H3K4me3", type="polygon",
+                       col="#D43F39", fill.mountain=c("#D43F39","#D43F39"),
+                       ylim=c(0,max(c(5,H3K4me3.bw$score))))
+
+
+### Transcription ###
+#RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF283IQC_RNAseqPlus.bigwig",
+#                 selection=BigWigSelection(gr.oi))
+ RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF804BRH_RNAseqMinus.bigwig", 
+               selection=BigWigSelection(gr.oi))
+
+dTrack.Pol<-DataTrack(RNA.bw, name="poly(A) RNA", type="polygon",
+                       col="#5CB85B", fill.mountain=c("#5CB85B","#5CB85B"),
+                      ylim=c(0,max(c(0.2,RNA.bw$score))))
+
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,3,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+
+pdf(paste0(out.path,"KLF4.pdf"),width = 5, height = 7)
+    plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+dev.off()
+```
+
+
+##FOXQ1
+```{r make Tracks FOXQ1}
+
+
+## region to plot
+chr<-"chr6"
+start<-1300825
+end<-1321745
+genome<-"hg38"
+
+gr.oi<-GRanges(seqnames =chr,
+               ranges = IRanges(start=start, end=end),
+                )
+gr.oi.ens<-GRanges(seqnames =str_remove(chr,"chr"),
+               ranges = IRanges(start=start, end=end))
+
+### Genome Annotation #######
+ideoTrack <- IdeogramTrack(genome="hg38", chromosome=chr, showId=T,
+                           fontcolor="black", cex=1)
+axisTrack <- GenomeAxisTrack( col="black", cex=0.7, fontcolor="black")
+
+
+### Gene Annotation
+biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+                                    start=start, end=end,
+                                    name="RefSeq", showId=T,
+                                    cex=1.5, fontcolor.group="black",
+                                    filter=list(with_refseq_mrna=TRUE))
+# ### Gene Annotation
+# biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+#                                     start=start, end=end,
+#                                     name="RefSeq", showId=T,
+#                                     cex=1.5, fontcolor.group="black",
+#                                     just.group="left")
+
+### MTA2 ChIP
+MTA2.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_pooled/MTA2_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(MTA2.bw)<-paste0("chr",seqlevels(MTA2.bw))
+
+dTrack.mta2<-DataTrack(MTA2.bw, name="MTA2", type="polygon",
+                       col="#357EBD", fill.mountain=c("#357EBD","#357EBD"))
+
+
+#########################################
+
+## called MTA2 peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak, which=gr.oi.ens)
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+aTrack.mta.peaks<-AnnotationTrack(mta2.peaks, name="MTA2 peaks", fill="#357EBD",
+                                  col="black")
+
+#########################################
+
+## chromatin states
+chromHMM<- import("data/annotation/chromHMM/E057_15_coreMarks_hg38lift_dense.bed",
+                        which=gr.oi)
+aTrack.chromHMM<-AnnotationTrack(chromHMM, name="chromatin states")
+
+
+hmmTrack <- AnnotationTrack(chromHMM, id = chromHMM$name, stacking = "dense", 
+                    feature = chromHMM$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM",
+                    "#C0C0C0"="#C0C0C0","#FFFFFF"="#FFFFFF","#FFFF00"="#FFFF00",
+                    "#808080"="#808080","#FF4500"="#FF4500","#FF0000"="#FF0000",
+                    "#BDB76B"= "#BDB76B","#006400"="#006400","#8A91D0"="#8A91D0",
+                    "#E9967A"="#E9967A","#C2E105"="#C2E105","#32CD32"="#32CD32",
+                    "#CD5C5C"= "#CD5C5C")
+
+
+###### H3K27me3 #####
+H3K27me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF400FLX_H3K27me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27me3<-DataTrack(H3K27me3.bw, name="H3K27me3", type="polygon",
+                       col="#8E8E8D", fill.mountain=c("#8E8E8D","#8E8E8D"),
+                       ylim=c(0,max(c(5,H3K27me3.bw$score))))
+
+
+###### H3K27ac #####
+H3K27ac.bw<-import.bw(con = "data/annotation/HistoneMod_E058/ENCFF027UPV_H3K27ac.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27ac<-DataTrack(H3K27ac.bw, name="H3K27ac", type="polygon",
+                       col="#FEA22B", fill.mountain=c("#FEA22B","#FEA22B"),
+                       ylim=c(0,max(c(5,H3K27ac.bw$score))))
+
+###### H3K4me1 #####
+H3K4me1.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF319BIJ_H3K4me1.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me1<-DataTrack(H3K4me1.bw, name="H3K4me1", type="polygon",
+                       col="salmon", fill.mountain=c("salmon","salmon"),
+                       ylim=c(0,max(c(5,H3K4me1.bw$score))))
+
+###### H3K4me3 #####
+H3K4me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF517FHJ_H3K4me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me3<-DataTrack(H3K4me3.bw, name="H3K4me3", type="polygon",
+                       col="#D43F39", fill.mountain=c("#D43F39","#D43F39"),
+                       ylim=c(0,max(c(5,H3K4me3.bw$score))))
+
+
+### Transcription ###
+RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF283IQC_RNAseqPlus.bigwig",
+                 selection=BigWigSelection(gr.oi))
+# RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF804BRH_RNAseqMinus.bigwig", 
+#               selection=BigWigSelection(gr.oi))
+
+dTrack.Pol<-DataTrack(RNA.bw, name="poly(A) RNA", type="polygon",
+                       col="#5CB85B", fill.mountain=c("#5CB85B","#5CB85B"),
+                      ylim=c(0,max(c(0.2,RNA.bw$score))))
+
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+
+pdf(paste0(out.path,"FOXQ1.pdf"),width = 5, height = 7)
+    plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+dev.off()
+```
+
+##EGFR
+```{r make Tracks EGFR}
+		
+## region to plot
+chr<-"chr7"
+start<-55015076
+end<-55143060
+genome<-"hg38"
+
+gr.oi<-GRanges(seqnames =chr,
+               ranges = IRanges(start=start, end=end),
+                )
+gr.oi.ens<-GRanges(seqnames =str_remove(chr,"chr"),
+               ranges = IRanges(start=start, end=end))
+
+### Genome Annotation #######
+ideoTrack <- IdeogramTrack(genome="hg38", chromosome=chr, showId=T,
+                           fontcolor="black", cex=1)
+axisTrack <- GenomeAxisTrack( col="black", cex=0.7, fontcolor="black")
+
+
+### Gene Annotation
+# biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+#                                     start=start, end=end,
+#                                     name="RefSeq", showId=T,
+#                                     cex=1.5, fontcolor.group="black",
+#                                     filter=list(with_refseq_mrna=TRUE))
+# ### Gene Annotation
+biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+                                    start=start, end=end,
+                                    name="RefSeq", showId=T,
+                                    cex=1.5, fontcolor.group="black",
+                                    just.group="left")
+
+### MTA2 ChIP
+MTA2.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_pooled/MTA2_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(MTA2.bw)<-paste0("chr",seqlevels(MTA2.bw))
+
+dTrack.mta2<-DataTrack(MTA2.bw, name="MTA2", type="polygon",
+                       col="#357EBD", fill.mountain=c("#357EBD","#357EBD"))
+
+
+#########################################
+
+## called MTA2 peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak, which=gr.oi.ens)
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+aTrack.mta.peaks<-AnnotationTrack(mta2.peaks, name="MTA2 peaks", fill="#357EBD",
+                                  col="black")
+
+#########################################
+
+## chromatin states
+chromHMM<- import("data/annotation/chromHMM/E057_15_coreMarks_hg38lift_dense.bed",
+                        which=gr.oi)
+aTrack.chromHMM<-AnnotationTrack(chromHMM, name="chromatin states")
+
+
+hmmTrack <- AnnotationTrack(chromHMM, id = chromHMM$name, stacking = "dense", 
+                    feature = chromHMM$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM",
+                    "#C0C0C0"="#C0C0C0","#FFFFFF"="#FFFFFF","#FFFF00"="#FFFF00",
+                    "#808080"="#808080","#FF4500"="#FF4500","#FF0000"="#FF0000",
+                    "#BDB76B"= "#BDB76B","#006400"="#006400","#8A91D0"="#8A91D0",
+                    "#E9967A"="#E9967A","#C2E105"="#C2E105","#32CD32"="#32CD32",
+                    "#CD5C5C"= "#CD5C5C","#008000"="#008000")
+
+
+###### H3K27me3 #####
+H3K27me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF400FLX_H3K27me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27me3<-DataTrack(H3K27me3.bw, name="H3K27me3", type="polygon",
+                       col="#8E8E8D", fill.mountain=c("#8E8E8D","#8E8E8D"),
+                       ylim=c(0,max(c(5,H3K27me3.bw$score))))
+
+
+###### H3K27ac #####
+H3K27ac.bw<-import.bw(con = "data/annotation/HistoneMod_E058/ENCFF027UPV_H3K27ac.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27ac<-DataTrack(H3K27ac.bw, name="H3K27ac", type="polygon",
+                       col="#FEA22B", fill.mountain=c("#FEA22B","#FEA22B"),
+                       ylim=c(0,max(c(5,H3K27ac.bw$score))))
+
+###### H3K4me1 #####
+H3K4me1.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF319BIJ_H3K4me1.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me1<-DataTrack(H3K4me1.bw, name="H3K4me1", type="polygon",
+                       col="salmon", fill.mountain=c("salmon","salmon"),
+                       ylim=c(0,max(c(5,H3K4me1.bw$score))))
+
+###### H3K4me3 #####
+H3K4me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF517FHJ_H3K4me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me3<-DataTrack(H3K4me3.bw, name="H3K4me3", type="polygon",
+                       col="#D43F39", fill.mountain=c("#D43F39","#D43F39"),
+                       ylim=c(0,max(c(5,H3K4me3.bw$score))))
+
+
+### Transcription ###
+RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF283IQC_RNAseqPlus.bigwig",
+                 selection=BigWigSelection(gr.oi))
+# RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF804BRH_RNAseqMinus.bigwig", 
+#               selection=BigWigSelection(gr.oi))
+
+dTrack.Pol<-DataTrack(RNA.bw, name="poly(A) RNA", type="polygon",
+                       col="#5CB85B", fill.mountain=c("#5CB85B","#5CB85B"),
+                      ylim=c(0,max(c(0.2,RNA.bw$score))))
+
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,3,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+
+pdf(paste0(out.path,"EGFR.pdf"),width = 8, height = 7)
+    plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,2,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+dev.off()
+```
+
+##ALOXE3
+```{r make Tracks ALOXE3}
+
+## region to plot
+chr<-"chr17"
+start<-8108174
+end<-8129141
+genome<-"hg38"
+
+gr.oi<-GRanges(seqnames =chr,
+               ranges = IRanges(start=start, end=end),
+                )
+gr.oi.ens<-GRanges(seqnames =str_remove(chr,"chr"),
+               ranges = IRanges(start=start, end=end))
+
+### Genome Annotation #######
+ideoTrack <- IdeogramTrack(genome="hg38", chromosome=chr, showId=T,
+                           fontcolor="black", cex=1)
+axisTrack <- GenomeAxisTrack( col="black", cex=0.7, fontcolor="black")
+
+
+### Gene Annotation
+biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+                                    start=start, end=end,
+                                    name="RefSeq", showId=T,
+                                    cex=1.5, fontcolor.group="black",
+                                    filter=list(with_refseq_mrna=TRUE))
+# ### Gene Annotation
+# biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+#                                     start=start, end=end,
+#                                     name="RefSeq", showId=T,
+#                                     cex=1.5, fontcolor.group="black",
+#                                     just.group="left")
+
+### MTA2 ChIP
+MTA2.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_pooled/MTA2_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(MTA2.bw)<-paste0("chr",seqlevels(MTA2.bw))
+
+dTrack.mta2<-DataTrack(MTA2.bw, name="MTA2", type="polygon",
+                       col="#357EBD", fill.mountain=c("#357EBD","#357EBD"))
+
+
+#########################################
+
+## called MTA2 peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak, which=gr.oi.ens)
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+aTrack.mta.peaks<-AnnotationTrack(mta2.peaks, name="MTA2 peaks", fill="#357EBD",
+                                  col="black")
+
+#########################################
+
+## chromatin states
+chromHMM<- import("data/annotation/chromHMM/E057_15_coreMarks_hg38lift_dense.bed",
+                        which=gr.oi)
+aTrack.chromHMM<-AnnotationTrack(chromHMM, name="chromatin states")
+
+
+hmmTrack <- AnnotationTrack(chromHMM, id = chromHMM$name, stacking = "dense", 
+                    feature = chromHMM$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM",
+                    "#C0C0C0"="#C0C0C0","#FFFFFF"="#FFFFFF","#FFFF00"="#FFFF00",
+                    "#808080"="#808080","#FF4500"="#FF4500","#FF0000"="#FF0000",
+                    "#BDB76B"= "#BDB76B","#006400"="#006400","#8A91D0"="#8A91D0",
+                    "#E9967A"="#E9967A","#C2E105"="#C2E105","#32CD32"="#32CD32",
+                    "#CD5C5C"= "#CD5C5C")
+
+
+###### H3K27me3 #####
+H3K27me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF400FLX_H3K27me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27me3<-DataTrack(H3K27me3.bw, name="H3K27me3", type="polygon",
+                       col="#8E8E8D", fill.mountain=c("#8E8E8D","#8E8E8D"),
+                       ylim=c(0,max(c(5,H3K27me3.bw$score))))
+
+
+###### H3K27ac #####
+H3K27ac.bw<-import.bw(con = "data/annotation/HistoneMod_E058/ENCFF027UPV_H3K27ac.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27ac<-DataTrack(H3K27ac.bw, name="H3K27ac", type="polygon",
+                       col="#FEA22B", fill.mountain=c("#FEA22B","#FEA22B"),
+                       ylim=c(0,max(c(5,H3K27ac.bw$score))))
+
+###### H3K4me1 #####
+H3K4me1.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF319BIJ_H3K4me1.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me1<-DataTrack(H3K4me1.bw, name="H3K4me1", type="polygon",
+                       col="salmon", fill.mountain=c("salmon","salmon"),
+                       ylim=c(0,max(c(5,H3K4me1.bw$score))))
+
+###### H3K4me3 #####
+H3K4me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF517FHJ_H3K4me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me3<-DataTrack(H3K4me3.bw, name="H3K4me3", type="polygon",
+                       col="#D43F39", fill.mountain=c("#D43F39","#D43F39"),
+                       ylim=c(0,max(c(5,H3K4me3.bw$score))))
+
+
+### Transcription ###
+# RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF283IQC_RNAseqPlus.bigwig",
+#                  selection=BigWigSelection(gr.oi))
+RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF804BRH_RNAseqMinus.bigwig",
+              selection=BigWigSelection(gr.oi))
+
+dTrack.Pol<-DataTrack(RNA.bw, name="poly(A) RNA", type="polygon",
+                       col="#5CB85B", fill.mountain=c("#5CB85B","#5CB85B"),
+                      ylim=c(0,max(c(0.2,RNA.bw$score))))
+
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+
+pdf(paste0(out.path,"ALOXE3.pdf"),width = 5, height = 7)
+    plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.mta2,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac,dTrack.H3K4me1,
+                dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,2,2,2,2,2), 
+                    from = start,  to = end )
+dev.off()
+```
+
+
+##Session info
+```{r info}
+sessionInfo()
+```
+

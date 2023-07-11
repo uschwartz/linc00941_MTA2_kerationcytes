@@ -1,0 +1,273 @@
+---
+title: "MTA2 ChIP seq Peak Annotations in Keratinocytes"
+author: "Uwe Schwartz"
+date: '2023-06-15'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+work.path<- "/Volumes/PromisePegasus/_Service_/S036_skin_MTA_figures/"
+knitr::opts_knit$set(root.dir =work.path)
+out.path<-paste0(work.path,"analysis/Figure4/genomeAnno_ProtCod_v2/")
+dir.create(out.path, recursive = T, showWarnings = F)
+```
+## Dependencies & Libraries
+
+#### Load packages
+```{r libraries, message=FALSE}
+library(GenomicRanges)
+library(rtracklayer)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(ChIPseeker)
+library(org.Hs.eg.db)
+library(clusterProfiler)
+library(ggupset)
+library(ggimage)
+library(ReactomePA)
+library(enrichplot)
+library(stringr)
+library(ggpubr)
+```
+
+
+##Analysis 
+```{r analysis}
+# make annotation Db
+#TxDb.protein.coding<-makeTxDbFromGFF("~/Annotation/GRCh38/nextflow/protein_coding.gtf",
+#                                     format = "gtf", organism="Homo sapiens")
+
+#saveDb(TxDb.protein.coding, file="~/Annotation/GRCh38/TxDb.protein.coding.sqlite")
+TxDb.protein.coding<-loadDb( file="~/Annotation/GRCh38/TxDb.protein.coding.sqlite")
+
+
+seqlevelsStyle(TxDb.protein.coding) <- "UCSC"
+
+
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak)
+mta2.peaks.pre
+
+#remove ambigious assemblies
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+mta2.peaks
+
+
+#### Peak Anno
+#db <- TxDb.Hsapiens.UCSC.hg38.knownGene
+
+## show how distributed at TSS
+promoter <- getPromoters(TxDb=TxDb.protein.coding,
+                         upstream=3000, downstream=3000)
+tagMatrix <- getTagMatrix(mta2.peaks, windows=promoter)
+
+plotAvgProf(tagMatrix, xlim=c(-3000, 3000),
+            xlab="Distance to TSS", ylab = "Peak Count Frequency")
+
+pdf(paste0(out.path,"MTA2_Peak_Distribution_at_TSS.pdf"), width=4, height = 2.5)
+    plotAvgProf(tagMatrix, xlim=c(-3000, 3000),
+            xlab="Distance to TSS", ylab = "Peak Count Frequency")
+dev.off()
+
+
+peaks.anno <-annotatePeak(mta2.peaks,TxDb=TxDb.protein.coding,
+                        tssRegion=c(-1000, 1000), verbose=FALSE)
+
+pdf(paste0(out.path,"MTA2_anno_pie.pdf"), width=6, height = 2.5)
+    plotAnnoPie(peaks.anno)
+dev.off()
+
+
+plotAnnoBar(peaks.anno)
+
+vennpie(peaks.anno)
+
+upsetplot(peaks.anno, vennpie=TRUE)
+
+
+plotDistToTSS(peaks.anno,
+              title="Distribution of MTA2-binding loci\nrelative to TSS")
+
+
+```
+
+
+
+```{r link 2 genes}
+head(peaks.anno@anno,3)
+
+conv2table<-function(x){
+  eg = bitr(x@anno$geneId, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
+  ez = bitr(x@anno$geneId, fromType="ENSEMBL", toType="ENTREZID", OrgDb="org.Hs.eg.db")
+  anno.table<-x@anno
+  #add gene symbols
+  mx<-match(anno.table$geneId, eg$ENSEMBL)
+  anno.table$gene_symbol<-eg[mx,"SYMBOL"]
+  #add gene entrezID
+  mx<-match(anno.table$geneId, ez$ENSEMBL)
+  anno.table$gene_entrez<-ez[mx,"ENTREZID"]
+  
+  res.table<-cbind(
+      chr=as.vector(seqnames(anno.table)),
+      start=start(anno.table),
+      end=end(anno.table),
+      name=anno.table$name,
+      peak.p_adj=anno.table$qValue,
+      strand=rep(".", length(anno.table)),
+      genome_anno=anno.table$annotation,
+      gene_symbol=anno.table$gene_symbol,
+      gene_entrez=anno.table$gene_entrez,
+      distanceToTSS=anno.table$distanceToTSS,
+      transcriptId=anno.table$transcriptId,
+      geneId_ensembl=anno.table$geneId)
+  
+}
+
+table.list<-conv2table(peaks.anno)
+
+head(table.list)
+
+
+write.table(table.list,
+            file = paste0(out.path,"MTA2_peak_table.tsv"),
+            row.names = F,
+            col.names = T, sep="\t", quote=F)
+
+
+
+```
+
+
+```{r gene enrichment}
+
+table.list<-data.frame(table.list)
+
+#less than 3 kb from TSS
+idx.prox<-abs(as.numeric(table.list$distanceToTSS))<3000
+
+sum(idx.prox)
+
+
+ego <- enrichGO(gene          = na.omit(table.list$gene_entrez[idx.prox]),
+                OrgDb         = org.Hs.eg.db,
+                ont           = "BP",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.01,
+                qvalueCutoff  = 0.05,
+                minGSSize = 250,
+                maxGSSize = 350,
+        readable      = TRUE)
+
+head(ego, 3) 
+
+barplot(ego, showCategory=10) 
+
+dotplot(ego, showCategory=5) 
+
+pdf(paste0(out.path,"/dotPlot_enrich_MTA2.pdf"), width=6, height = 2.5)
+    dotplot(ego, showCategory=5) 
+dev.off()
+
+ego.sim<-pairwise_termsim(ego)
+treeplot(ego.sim, showCategory=10, nCluster=3)
+
+
+
+write.table(na.omit(table.list$gene_symbol[idx.prox]),
+            file=paste0(out.path,"geneList_3kb.txt"),
+            sep="\n", quote=F, row.names = F, col.names = F)
+
+write.table(data.frame(ego),
+            file=paste0(out.path,"geneEnrichment.txt"),
+            sep="\t", quote=F, row.names = F, col.names = T)
+
+
+cnetplot(ego, node_label="all",showCategory=5) 
+
+
+    cnetplot(ego, cex_label_category = 1,showCategory = 5)
+
+
+
+## with expression
+
+expr<-read.delim("data/annotation/RNAseq/ENCFF902PPD_polyA_RNAseq_keratinocytes.tsv")
+head(expr)
+
+
+mx<-match(table.list$geneId_ensembl[idx.prox],str_split_i(expr$gene_id,"\\.",1))
+
+
+TPMs<-log10(expr[mx,"TPM"]+1)
+names(TPMs)<-table.list$gene_symbol[idx.prox]
+
+pdf(paste0(out.path,"/GeneNetwork_5mainTerms.pdf"), width = 15, height = 9)
+    cnetplot(ego,foldChange=TPMs, cex_label_category = 1,showCategory = 5) + 
+        scale_color_gradient(name='log10(TPM+1)', 
+                              low="grey", high="#B2182B")
+dev.off()
+```
+
+
+```{r expression}
+table.list[which(table.list$name == "mta2_peak_53703"),]
+
+expr<-read.delim("data/annotation/RNAseq/ENCFF902PPD_polyA_RNAseq_keratinocytes.tsv")
+head(expr)
+
+# get protein coding ones
+txsByGene <- transcriptsBy(TxDb.protein.coding, "gene")
+ens.cod<-names(txsByGene)
+
+expr.all<-expr[which(str_split_i(expr$gene_id,"\\.",1) %in% ens.cod),"TPM"]
+
+expr.mta2<-expr[which(str_split_i(expr$gene_id,"\\.",1) %in% table.list$geneId_ensembl[idx.prox]),"TPM"]
+
+
+plot(density(log10(expr.mta2+0.001)))
+
+plot(density(log10(expr.all+0.001)))
+
+hist(log10(expr.all+0.001), freq = F)
+hist(log10(expr.mta2+0.001), freq = F)
+table(expr.all==0)
+
+sum(expr.all==0)/length(expr.all)
+sum(expr.mta2==0)/length(expr.mta2)
+
+df<-data.frame(
+    log10TPM=c(log10(expr.all+0.001),log10(expr.mta2+0.001)),
+    group=as.factor(c(rep("protein-coding",length(expr.all)),
+            rep("MTA2 bound",length(expr.mta2))))
+)
+
+
+ggdensity(df, x = "log10TPM",
+   color = "group", fill = "group",
+   palette = c("#00AFBB", "#E7B800"))
+
+gghistogram(df, x = "log10TPM",
+   color = "group", fill = "group",
+   palette = c("#00AFBB", "#E7B800"))
+
+
+pdf(paste0(out.path,"/expressionDensity_MTA2.pdf"))
+    ggdensity(df, x = "log10TPM",
+        color = "group", fill = "group",
+        palette = c("#00AFBB", "#E7B800"))
+dev.off()
+
+```
+
+
+##Session info
+```{r info}
+sessionInfo()
+```
+

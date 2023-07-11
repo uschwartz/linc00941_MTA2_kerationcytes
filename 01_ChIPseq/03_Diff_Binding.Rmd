@@ -1,0 +1,270 @@
+---
+title: "Differential Binding MTA2 kd siLINC00941"
+author: "Uwe Schwartz"
+date: "07/11/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+work.path<- "/Volumes/PromisePegasus/_Service_/S026_siChIP_E2F6_MTA2/run_221117/RUN//09_DESeq/MTA2"
+knitr::opts_knit$set(root.dir =work.path)
+out.path<-paste0(work.path,"/DiffBind")
+dir.create(out.path, recursive = T, showWarnings = F)
+```
+
+## Dependencies & Libraries
+
+#### Load packages
+```{r libraries, message=FALSE}
+library(DESeq2)
+library(RColorBrewer)
+library(ggplot2)
+library(pheatmap)
+library(ggrepel)
+library(ggpubr)
+load("/Users/admin///Library/Mobile Documents/com~apple~CloudDocs/Organisation_NAC/Cooperate_Design/colors/nac_palette_extend.rda")
+palette(nac_palette_extend)
+```
+
+##Import data
+
+First load DESeq2 object generated in exploratory ananylsis. Select the target samples and then perform differential gene expression analysis 
+```{r DESeq obj}
+# load 
+load(file=paste(work.path,"obj/rld.rda",sep="/"))
+load(file="obj/dds.obj.rda")
+
+peaks<-read.delim("../../06_CallPeaks/mta2/mta2_filtFDR_narrowPeaks.bed",header = F)
+colnames(peaks)<- c("chr", "start", "end","peak_name","peak_score", "strand",
+                    "peak_signalValue", "peak_pVal_negLOG10","peak_qVal_negLOG10", "peak_summit"  )
+
+# meta data
+colData(dds.obj)
+
+#design
+design(dds.obj)<-~condition
+
+## differential gene expression likelihhod ratio test
+dds.diff <- DESeq(dds.obj)
+
+
+#### differential analysis
+ctrl="siCtrl"
+cond="siLINC00941"
+
+res<-results(dds.diff, contrast =c("condition",cond, ctrl) )
+summary(res)
+
+```
+
+
+```{r checkpoint1, eval=FALSE, echo=FALSE }
+dir.create(paste(out.path,"obj/",sep="/"), recursive = T, showWarnings = F)
+save(dds.diff, file=paste(out.path,"obj/dds.diff.rda",sep="/"))
+
+```
+
+##
+
+```{r kd}
+#MA plot before shrinkage
+max.lfc<-max(abs(res$log2FoldChange),na.rm = T)
+
+DESeq2::plotMA(res,ylim = c(-max.lfc, max.lfc), cex=0.5,
+               colSig=1)  
+
+#shrinkage
+res.shr <- lfcShrink(dds.diff,contrast =c("condition",cond, ctrl), 
+                     res=res, type = "normal") 
+
+max.lfc<-max(abs(res.shr$log2FoldChange),na.rm = T)
+
+DESeq2::plotMA(res.shr,ylim = c(-1.5, 1.5), cex=0.5,colSig=1)
+    abline(h=c(-1,1), lty=2)
+
+    
+## pVal_distribution
+hist(res$pvalue[res$baseMean > 1], breaks = 0:20/20,
+       col = "grey50", border = "white", xlab="p-Value", main="pVal distribution")
+     
+head(res[order(res$padj),])
+
+## extend result table
+res<-cbind(res,peaks[match(row.names(res), peaks$peak_name),c("peak_name","chr","start","end",
+                                               "peak_score","peak_pVal_negLOG10",
+                                               "peak_qVal_negLOG10", "peak_summit")])
+
+### significant hits
+res.sig<-subset(res, padj<0.1)
+
+#significant hits up regulated
+table(res.sig$log2FoldChange>0)
+
+
+## heatmap of significant genes selected samples
+mat.red<-assay(rld)[rownames(res.sig),colnames(dds.diff)]
+rownames(mat.red)<- res.sig$symbol
+anno<-data.frame(condition=colData(rld)[,c("condition")], row.names =colnames(rld) )
+  
+print(pheatmap(mat.red,scale="row", 
+               annotation_col = anno,show_rownames  = T) )
+
+
+
+
+## volcano plot
+df<-data.frame(subset(res, !is.na(res$padj)))
+df$id<-rownames(df)
+## set thresholds
+p.th<-0.1
+df$signif<-df$padj<=p.th 
+
+
+g<-ggplot(df, aes(log2FoldChange,log10(padj)*c(-1), lable=id,p.adj=padj,
+                  logFC=round(log2FoldChange,digits = 3)))+
+    geom_point(aes(color=signif))+theme_bw()+ylab("-log10(p-value)")+
+    scale_color_manual(values=c("grey","red"))+
+    scale_shape_manual(values=c(19,23))
+
+#get significant
+df.sign<-subset(df, signif)
+#top20
+df.top<-df.sign[order(df.sign$padj)[1:20],]
+
+print(g+geom_text_repel(data = df.top,
+                        aes(label = id),
+                        size = 3,
+                        box.padding = unit(0.3, "lines"),
+                        point.padding = unit(0.2, "lines")))
+
+
+
+```
+
+
+```{r diff exp save data, eval=FALSE, echo=FALSE }
+
+path.plots=paste(out.path,"/plots",sep="/")
+dir.create(path.plots, showWarnings = F, recursive = T)
+
+
+
+path.obj=paste(out.path,"/obj",sep="/")
+
+resMA<-results(dds.diff, contrast =c("condition",cond, ctrl) )
+max.lfc<-max(abs(resMA$log2FoldChange),na.rm = T)
+pdf(paste0(path.plots,"/MA_Shrinkage.pdf"), width=5,height = 5)
+    DESeq2::plotMA(resMA,ylim = c(-max.lfc, max.lfc), cex=0.5,
+               colSig=1)  
+    abline(h=c(-1,1), lty=2)
+dev.off()
+
+
+
+## pVal_distribution
+pdf(paste0(path.plots,"/pVal_histogram.pdf"), width=5,height = 5)
+    hist(res$pvalue[res$baseMean > 1], breaks = 0:20/20,
+       col = "grey50", border = "white", xlab="p-Value", main="pVal distribution")
+dev.off()
+
+save(res, file=paste0(path.obj,"/res.rda"))
+write.table(res[order(res$pvalue),], file=paste0(out.path,"/res_table.txt"),
+            row.names = F,quote=F, sep="\t")
+
+write.table(res.sig, file=paste0(out.path,"/res_sig.txt"),
+            row.names = F,quote=F, sep="\t")
+
+
+############### glimma ## eploratory
+  library(Glimma)
+  library(edgeR)
+  
+  
+  res.df<-as.data.frame(res)
+  res.df$log10MeanNormCount<-log10(res.df$baseMean)
+  
+  # filter not expressed genes 
+  idx<-rowSums(counts(dds.diff))>5 
+  res.df.fil<-(res.df[idx,])
+  
+  res.df.fil$padj[is.na(res.df.fil$padj)]<-1
+  
+  #get stat
+  res.sig<-res[which(res$padj<0.1),]
+  wx<-which(rownames(res.df.fil) %in% rownames(res.sig))
+  stat<-rep(0,nrow(res.df.fil))
+  stat[wx]<-rep(1,length(wx))
+  
+  
+  glMDPlot(res.df.fil, 
+           xval = "log10MeanNormCount",
+           yval="log2FoldChange",
+           counts=counts(dds.diff, normalized=T)[idx,],
+           anno=data.frame(GeneID=rownames(dds.diff)[idx]),
+           groups=dds.diff$condition,
+           samples=colnames(dds.diff),
+           display.columns = c("peak_name", "log2FoldChange",
+                               "pvalue","padj", "chr", "start", "end"),
+           status = stat,
+           path = out.path)
+  
+##########################
+save(res.sig, file=paste0(path.obj,"/res.sig.rda"))
+
+
+
+### heatmap
+pdf(paste0(path.plots,"/heatmap_signif_peaks.pdf"),
+    height=7.5, width = 4, onefile = F)
+    print(pheatmap(mat.red,scale="row", annotation_col = anno,show_rownames  = T) )
+dev.off()
+
+
+#### volcano
+pdf(paste0(path.plots,"/volcano.pdf"), width=5, height = 5)
+    print(g+geom_text_repel(data = df.top,
+                        aes(label = id),
+                        size = 3,
+                        box.padding = unit(0.3, "lines"),
+                        point.padding = unit(0.2, "lines")))
+
+dev.off()
+#### html
+
+
+######################### GREAT output ######################
+#select peaks of "normal" chromosomes 
+peaks.1<-res.sig[res.sig$chr %in% c(1:22,"X","Y"),]
+#add "chr" to first coloumn
+peaks.1$chr<-paste0("chr",peaks.1$chr)
+
+write.table(data.frame(peaks.1[,c("chr","start", "end", "peak_name","peak_score")],
+                       strand="."),
+                       file =paste0(out.path,"/peaks_Sig_GREAT.bed") , sep= "\t",
+                    col.names = F,row.names = F, quote=F)
+
+
+#select peaks of "normal" chromosomes 
+peaks.all<-res[res$chr %in% c(1:22,"X","Y"),]
+#add "chr" to first coloumn
+peaks.all$chr<-paste0("chr",peaks.all$chr)
+
+write.table(data.frame(peaks.all[,c("chr","start", "end", "peak_name","peak_score")],
+                       strand="."),
+                       file =paste0(out.path,"/peaks_ALL_GREAT.bed") , sep= "\t",
+                    col.names = F,row.names = F, quote=F)
+
+```
+
+
+##Session info
+```{r info}
+sessionInfo()
+
+
+```
+
+
+

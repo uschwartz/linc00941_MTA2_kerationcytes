@@ -1,0 +1,485 @@
+---
+title: "differential MTA2 ChIP seq Visualisation in Keratinocytes"
+author: "Uwe Schwartz"
+date: '2023-03-22'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+work.path<- "/Volumes/PromisePegasus/_Service_/S036_skin_MTA_figures/"
+knitr::opts_knit$set(root.dir =work.path)
+out.path<-paste0(work.path,"analysis/Figure6/genomeTracks/")
+dir.create(out.path, recursive = T, showWarnings = F)
+```
+## Dependencies & Libraries
+
+#### Load packages
+```{r libraries, message=FALSE}
+library(rtracklayer)
+library(Gviz)
+library(stringr)
+
+```
+
+```{r Gviz common options}
+scheme <- getScheme()
+scheme$GdObject$col.axis="black"
+scheme$GdObject$col.title="black"
+scheme$DataTrack$col.title="black"
+scheme$DataTrack$cex.title=0.5
+scheme$AnnotationTrack$col.title="black"
+scheme$AnnotationTrack$cex.title=0.5
+scheme$GdObject$background.title="transparent"
+
+addScheme(scheme, "myScheme")
+options(Gviz.scheme = "myScheme")
+
+```
+
+##Analysis
+###EGR3
+```{r make Tracks}
+## region to plot
+chr<-"chr8"
+start<-22685659
+end<-22695480
+genome<-"hg38"
+
+gr.oi<-GRanges(seqnames =chr,
+               ranges = IRanges(start=start, end=end),
+                )
+gr.oi.ens<-GRanges(seqnames =str_remove(chr,"chr"),
+               ranges = IRanges(start=start, end=end))
+
+### Genome Annotation #######
+ideoTrack <- IdeogramTrack(genome="hg38", chromosome=chr, showId=T,
+                           fontcolor="black", cex=1)
+axisTrack <- GenomeAxisTrack( col="black", cex=0.7, fontcolor="black")
+
+
+### Gene Annotation
+biomTrack <- BiomartGeneRegionTrack(genome="hg38", chromosome=chr,
+                                    start=start, end=end,
+                                    name="RefSeq", showId=T,
+                                    cex=1.5, fontcolor.group="black",
+                                    filter=list(with_refseq_mrna=TRUE))
+
+
+### MTA2 ChIP
+
+ctrl1.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_scaleFactor/siCtrl_MTA2.1.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(ctrl1.bw)<-paste0("chr",seqlevels(ctrl1.bw))
+
+ctrl2.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_scaleFactor/siCtrl_MTA2.2.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(ctrl2.bw)<-paste0("chr",seqlevels(ctrl2.bw))
+
+ctrl3.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_scaleFactor/siCtrl_MTA2.3.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(ctrl3.bw)<-paste0("chr",seqlevels(ctrl3.bw))
+
+si1.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_scaleFactor/siLINC00941_MTA2.1.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(si1.bw)<-paste0("chr",seqlevels(si1.bw))
+
+si2.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_scaleFactor/siLINC00941_MTA2.2.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(si2.bw)<-paste0("chr",seqlevels(si2.bw))
+
+si3.bw<-import.bw(con = "analysis/Figure4/bigwigs/bw_scaleFactor/siLINC00941_MTA2.3.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+seqlevels(si3.bw)<-paste0("chr",seqlevels(si3.bw))
+
+
+### overlay tracks
+maxTrack<-max(c(si1.bw$score,si2.bw$score,si3.bw$score,
+            ctrl1.bw$score, ctrl2.bw$score,ctrl3.bw$score))
+
+
+## prepare to get 50 bp bins scores
+interval.count<-GRanges(seqnames = chr,
+                        ranges = IRanges(seq(start,end,50),width = 50))
+
+getBinnedScore<-function(bw,interval.count){
+    #### check that it does not start at 0!!!!!!!
+    gr.data.cov <- GenomicRanges::coverage(bw,
+                                           weight="score")[[seqlevels(interval.count)]]
+    binned.score<-aggregate(gr.data.cov,ranges(interval.count), FUN=mean)
+    return(binned.score)
+}
+
+
+
+all.gr<-GRanges(seqnames=seqnames(interval.count), 
+                      ranges(interval.count),
+                      ctrl1=getBinnedScore(ctrl1.bw,interval.count),
+                      ctrl2=getBinnedScore(ctrl2.bw,interval.count),
+                      ctrl3=getBinnedScore(ctrl3.bw,interval.count),
+                      si1=getBinnedScore(si1.bw,interval.count),
+                      si2=getBinnedScore(si2.bw,interval.count),
+                      si3=getBinnedScore(si3.bw,interval.count))
+dTrack.si<-DataTrack(all.gr, groups=rep(c("siCtrl","siLINC00911"),each=3),
+                     type=c("a", "confint"),name="MTA2_ChIP",
+                         col=c("#357EBD","#D43F39"),lwd=2, 
+                     ylim=c(0,maxTrack))
+
+
+## called MTA2 peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak, which=gr.oi.ens)
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+aTrack.mta.peaks<-AnnotationTrack(mta2.peaks, name="MTA2 peaks", fill="#357EBD",
+                                  col="black")
+
+#########################################
+
+## chromatin states
+chromHMM<- import("data/annotation/chromHMM/E057_15_coreMarks_hg38lift_dense.bed",
+                        which=gr.oi)
+aTrack.chromHMM<-AnnotationTrack(chromHMM, name="chromatin states")
+
+hmmTrack <- AnnotationTrack(chromHMM, id = chromHMM$name, stacking = "dense", 
+                    feature = chromHMM$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM",
+                    "#C0C0C0"="#C0C0C0","#FFFF00"="#FFFF00",
+                    "#808080"="#808080","#FF0000"="#FF0000",
+                    "#BDB76B"= "#BDB76B","#FF4500"="#FF4500",
+                    "#E9967A"="#E9967A",
+                    "#CD5C5C"= "#CD5C5C")
+
+################## H3K27me3 ##################
+H3K27me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF400FLX_H3K27me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27me3<-DataTrack(H3K27me3.bw, name="H3K27me3", type="polygon",
+                       col="#8E8E8D", fill.mountain=c("#8E8E8D","#8E8E8D"))
+################## H3K27ac ##################
+H3K27ac.bw<-import.bw(con = "data/annotation/HistoneMod_E058/ENCFF027UPV_H3K27ac.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K27ac<-DataTrack(H3K27ac.bw, name="H3K27ac", type="polygon",
+                       col="#FEA22B", fill.mountain=c("#FEA22B","#FEA22B"))
+
+
+################## H3K4me1 ##################
+H3K4me1.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF319BIJ_H3K4me1.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me1<-DataTrack(H3K4me1.bw, name="H3K4me1", type="polygon",
+                       col="salmon", fill.mountain=c("salmon","salmon"))
+
+###### H3K4me3 #####
+H3K4me3.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF517FHJ_H3K4me3.bigwig", 
+              selection=BigWigSelection(gr.oi))
+dTrack.H3K4me3<-DataTrack(H3K4me3.bw, name="H3K4me3", type="polygon",
+                       col="firebrick", fill.mountain=c("firebrick","firebrick"))
+
+### Transcription ###
+RNA.bw<-import.bw(con = "data/annotation/HistoneMod_E057/ENCFF804BRH_RNAseqMinus.bigwig", 
+              selection=BigWigSelection(gr.oi))
+
+dTrack.Pol<-DataTrack(RNA.bw, name="poly(A) RNA", type="polygon",
+                       col="#5CB85B", fill.mountain=c("#5CB85B","#5CB85B"),
+                      ylim=c(0,0.2))
+
+
+
+#########################################
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.si,aTrack.mta.peaks,
+                hmmTrack, dTrack.H3K27me3, dTrack.H3K27ac, dTrack.H3K4me1,
+               dTrack.H3K4me3, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,1.5,1.5,1.5,1.5,1.5), 
+                    from = start,  to = end )
+
+
+## diff peaks
+
+mta2.diffpeaks<- import("data/DiffBind/peaks_Sig_GREAT.bed", format = "BED",
+                         which=gr.oi)
+
+h.light<-HighlightTrack(trackList = list(dTrack.si,aTrack.mta.peaks,hmmTrack,
+                 dTrack.H3K27me3, dTrack.H3K27ac, dTrack.H3K4me1,dTrack.H3K4me3), 
+                        start = start(mta2.diffpeaks), width = width(mta2.diffpeaks), 
+                        chromosome = chr,
+                        inBackground=T, fill="grey95", col=NA)
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,h.light, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,1.5,1.5,1.5,1.5,1.5), 
+                    from = start,  to = end )
+
+
+
+pdf(paste0(out.path,"EGR3_highlight.pdf"),width = 5, height = 5)
+    plotTracks(list(ideoTrack,axisTrack,biomTrack,h.light, dTrack.Pol),
+           sizes = c(1,1.5,1,3,1,1,1.5,1.5,1.5,1.5,1.5), 
+                    from = start,  to = end )
+dev.off()
+
+
+```
+```{r differentiation}
+################## H3K27me3 ##################
+H3K27me3.bw.0d<-import.bw(con = "data/annotation/series_H3K27me3/ENCFF492WYD_H3K27me3_0d.bigwig", 
+              selection=BigWigSelection(gr.oi))
+H3K27me3.bw.2.5d<-import.bw(con = "data/annotation/series_H3K27me3/ENCFF846IJG_H3K27me3_2.5d.bigwig", 
+              selection=BigWigSelection(gr.oi))
+H3K27me3.bw.5.5d<-import.bw(con = "data/annotation/series_H3K27me3/ENCFF902OOG_H3K27me3_5.5d.bigwig", 
+              selection=BigWigSelection(gr.oi))
+
+maxTrack.H3K27me3<-max(c(H3K27me3.bw.0d$score,H3K27me3.bw.2.5d$score,
+                H3K27me3.bw.5.5d$score))
+
+dTrack.H3K27me3.d0<-DataTrack(H3K27me3.bw.0d, name="H3K27me3 d0", type="a",
+                       col="#CCCCCC", fill.mountain=c("#CCCCCC","#CCCCCC"),
+                       ylim=c(0,maxTrack.H3K27me3))
+dTrack.H3K27me3.d2.5<-DataTrack(H3K27me3.bw.2.5d, name="H3K27me3 d2.5", type="a",
+                       col="#969696", fill.mountain=c("#969696","#969696"),
+                       ylim=c(0,maxTrack.H3K27me3))
+dTrack.H3K27me3.d5.5<-DataTrack(H3K27me3.bw.5.5d, name="H3K27me3 d5.5", type="a",
+                       col="#525252", fill.mountain=c("#525252","#525252"),
+                       ylim=c(0,maxTrack.H3K27me3))
+
+ot.H3K27me3<-OverlayTrack(trackList=list(dTrack.H3K27me3.d0,dTrack.H3K27me3.d2.5,
+                                       dTrack.H3K27me3.d5.5),
+                        name = "H3K27me3", lwd=2)
+
+
+
+################## H3K27ac ##################
+H3K27ac.bw.0d<-import.bw(con = "data/annotation/series_H3K27ac/ENCFF786TBH_H3K27ac_d0.bigwig", 
+              selection=BigWigSelection(gr.oi))
+H3K27ac.bw.2.5d<-import.bw(con = "data/annotation/series_H3K27ac/ENCFF870GTM_H3K27ac_d2.5.bigwig", 
+              selection=BigWigSelection(gr.oi))
+H3K27ac.bw.5.5d<-import.bw(con = "data/annotation/series_H3K27ac/ENCFF988UOV_H3K27ac_d5.5.bigwig", 
+              selection=BigWigSelection(gr.oi))
+
+maxTrack.H3K27ac<-max(c(H3K27ac.bw.0d$score,H3K27ac.bw.2.5d$score,
+                H3K27ac.bw.5.5d$score))
+
+dTrack.H3K27ac.d0<-DataTrack(H3K27ac.bw.0d, name="H3K27ac d0", type="a",
+                       col="#FDBE85", fill.mountain=c("#FDBE85","#FDBE85"),
+                       ylim=c(0,maxTrack.H3K27ac))
+dTrack.H3K27ac.d2.5<-DataTrack(H3K27ac.bw.2.5d, name="H3K27ac d2.5", type="a",
+                       col="#FD8D3C", fill.mountain=c("#FD8D3C","#FD8D3C"),
+                       ylim=c(0,maxTrack.H3K27ac))
+dTrack.H3K27ac.d5.5<-DataTrack(H3K27ac.bw.5.5d, name="H3K27ac d5.5", type="a",
+                       col="#D94701", fill.mountain=c("#D94701","#D94701"),
+                       ylim=c(0,maxTrack.H3K27ac))
+
+ot.H3K27ac<-OverlayTrack(trackList=list(dTrack.H3K27ac.d0,dTrack.H3K27ac.d2.5,
+                                       dTrack.H3K27ac.d5.5),
+                        name = "H3K27ac", lwd=2)
+
+
+################## H3K4me1 ##################
+H3K4me1.bw.0d<-import.bw(con = "data/annotation/series_H3K4me1/ENCFF539WZS_H3Kme1_d0.bigwig", 
+              selection=BigWigSelection(gr.oi))
+H3K4me1.bw.2.5d<-import.bw(con = "data/annotation/series_H3K4me1/ENCFF821VJZ_H3K4me1_2.5d.bigwig", 
+              selection=BigWigSelection(gr.oi))
+H3K4me1.bw.5.5d<-import.bw(con = "data/annotation/series_H3K4me1/ENCFF546FWF_H3K4me1_5.5d.bigwig", 
+              selection=BigWigSelection(gr.oi))
+
+maxTrack.H3K4me1<-max(c(H3K4me1.bw.0d$score,H3K4me1.bw.2.5d$score,
+                H3K4me1.bw.5.5d$score))
+
+dTrack.H3K4me1.d0<-DataTrack(H3K4me1.bw.0d, name="H3K4me1 d0", type="a",
+                       col="#FCAE91", fill.mountain=c("#FCAE91","#FCAE91"),
+                       ylim=c(0,max(c(20,maxTrack.H3K4me1))))
+dTrack.H3K4me1.d2.5<-DataTrack(H3K4me1.bw.2.5d, name="H3K4me1 d2.5", type="a",
+                       col="#FB6A4A", fill.mountain=c("#FB6A4A","#FB6A4A"),
+                       ylim=c(0,max(c(20,maxTrack.H3K4me1))))
+dTrack.H3K4me1.d5.5<-DataTrack(H3K4me1.bw.5.5d, name="H3K4me1 d5.5", type="a",
+                       col="#CB181D", fill.mountain=c("#CB181D","#CB181D"),
+                       ylim=c(0,max(c(20,maxTrack.H3K4me1))))
+
+ot.H3K4me1<-OverlayTrack(trackList=list(dTrack.H3K4me1.d0,dTrack.H3K4me1.d2.5,
+                                       dTrack.H3K4me1.d5.5),
+                        name = "H3K4me1", lwd=2)
+
+
+
+## chromatin states
+chromHMM.0d<- import("data/annotation/series_chromHMM/ENCFF571LVQ_chromHMM_0d.bigbed",
+                        which=gr.oi)
+aTrack.chromHMM.0d<-AnnotationTrack(chromHMM.0d, name="chromatin states")
+
+hmmTrack.0d <- AnnotationTrack(chromHMM.0d, id = chromHMM.0d$name, stacking = "dense", 
+                    feature = chromHMM.0d$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM 0d",
+                    "#c0c0c0"="#c0c0c0","#cd5c5c"="#cd5c5c",
+                    "#808080"="#808080","#ff4500"="#ff4500")
+
+chromHMM.2.5d<- import("data/annotation/series_chromHMM/ENCFF385FJV_chromHMM_2.5d.bigbed",
+                        which=gr.oi)
+aTrack.chromHMM.2.5d<-AnnotationTrack(chromHMM.2.5d, name="chromatin states")
+
+hmmTrack.2.5d <- AnnotationTrack(chromHMM.2.5d, id = chromHMM.2.5d$name, stacking = "dense", 
+                    feature = chromHMM.2.5d$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM 2.5d",
+                    "#c0c0c0"="#c0c0c0","#cd5c5c"="#cd5c5c","#ffc34d"="#ffc34d",
+                    "#808080"="#808080","#ff4500"="#ff4500","#ff0000"="#ff0000")
+
+
+chromHMM.5.5d<- import("data/annotation/series_chromHMM/ENCFF058GJN_chromHMM_5.5d.bigbed",
+                        which=gr.oi)
+aTrack.chromHMM.5.5d<-AnnotationTrack(chromHMM.5.5d, name="chromatin states")
+
+hmmTrack.5.5d <- AnnotationTrack(chromHMM.5.5d, id = chromHMM.5.5d$name, stacking = "dense", 
+                    feature = chromHMM.5.5d$itemRgb, groupAnnotation="feature",
+                     col="black", name="chromHMM 5.5d",
+                    "#c0c0c0"="#c0c0c0","#cd5c5c"="#cd5c5c","#ffc34d"="#ffc34d",
+                    "#808080"="#808080","#ff4500"="#ff4500","#ff0000"="#ff0000",
+                    "#006400"="#006400")
+
+################## RNA ##################
+RNA.bw.0d<-import.bw(con = "data/annotation/series_RNAseq/ENCFF699EVT_minusRNA_0d.bigwig", 
+              selection=BigWigSelection(gr.oi))
+RNA.bw.2.5d<-import.bw(con = "data/annotation/series_RNAseq/ENCFF701XBY_minusRNA_2.5d.bigwig", 
+              selection=BigWigSelection(gr.oi))
+RNA.bw.5.5d<-import.bw(con = "data/annotation/series_RNAseq/ENCFF366JLV_minusRNA_5.5d.bigwig", 
+              selection=BigWigSelection(gr.oi))
+
+maxTrack.RNA<-max(c(RNA.bw.0d$score,RNA.bw.2.5d$score,
+                RNA.bw.5.5d$score))
+
+dTrack.RNA.d0<-DataTrack(RNA.bw.0d, name="RNA d0", type="a",
+                       col="#BAE4B3", fill.mountain=c("#BAE4B3","#BAE4B3"),
+                       ylim=c(0,max(c(1,maxTrack.RNA))))
+dTrack.RNA.d2.5<-DataTrack(RNA.bw.2.5d, name="RNA d2.5", type="a",
+                       col="#74C476", fill.mountain=c("#74C476","#74C476"),
+                       ylim=c(0,max(c(1,maxTrack.RNA))))
+dTrack.RNA.d5.5<-DataTrack(RNA.bw.5.5d, name="RNA d5.5", type="a",
+                       col="#238B45", fill.mountain=c("#238B45","#238B45"),
+                       ylim=c(0,max(c(1,maxTrack.RNA))))
+
+ot.RNA<-OverlayTrack(trackList=list(dTrack.RNA.d0,dTrack.RNA.d2.5,
+                                       dTrack.RNA.d5.5),
+                        name = "RNA", lwd=2)
+
+
+#differential RNAseq siLINC00941
+RNA.bw.si.1<-import.bw(con = "../S015_skin_RNAseq/NFrun/alignment/profiles/unique/06_si00941_d3_1Signal.Unique.str1.out.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+RNA.bw.si.2<-import.bw(con = "../S015_skin_RNAseq/NFrun/alignment/profiles/unique/08_si00941_d3_3Signal.Unique.str1.out.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+RNA.bw.si.3<-import.bw(con = "../S015_skin_RNAseq/NFrun/alignment/profiles/unique/09_si00941_d3_4Signal.Unique.str1.out.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+RNA.bw.si.4<-import.bw(con = "../S015_skin_RNAseq/NFrun/alignment/profiles/unique/10_si00941_d3_5Signal.Unique.str1.out.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+
+RNA.bw.ctrl.1<-import.bw(con = "../S015_skin_RNAseq/NFrun/alignment/profiles/unique/11_siNgCtrl_d2_1Signal.Unique.str1.out.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+RNA.bw.ctrl.2<-import.bw(con = "../S015_skin_RNAseq/NFrun/alignment/profiles/unique/12_siNgCtrl_d2_2Signal.Unique.str1.out.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+RNA.bw.ctrl.3<-import.bw(con = "../S015_skin_RNAseq/NFrun/alignment/profiles/unique/13_siNgCtrl_d2_3Signal.Unique.str1.out.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+RNA.bw.ctrl.4<-import.bw(con = "../S015_skin_RNAseq/NFrun/alignment/profiles/unique/14_siNgCtrl_d2_4Signal.Unique.str1.out.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+RNA.bw.ctrl.5<-import.bw(con = "../S015_skin_RNAseq/NFrun/alignment/profiles/unique/15_siNgCtrl_d2_5Signal.Unique.str1.out.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+
+seqlevels(interval.count)<-str_remove(seqlevels(interval.count),"chr")
+
+allRNA.gr<-GRanges(seqnames=seqnames(interval.count), 
+                      ranges(interval.count),
+                      ctrl1=getBinnedScore(RNA.bw.ctrl.1,interval.count),
+                      ctrl2=getBinnedScore(RNA.bw.ctrl.2,interval.count),
+                      ctrl3=getBinnedScore(RNA.bw.ctrl.3,interval.count),
+                      ctrl4=getBinnedScore(RNA.bw.ctrl.4,interval.count),
+                      ctrl5=getBinnedScore(RNA.bw.ctrl.5,interval.count),
+                      si1=getBinnedScore(RNA.bw.si.1,interval.count),
+                      si2=getBinnedScore(RNA.bw.si.2,interval.count),
+                      si3=getBinnedScore(RNA.bw.si.3,interval.count),
+                      si4=getBinnedScore(RNA.bw.si.4,interval.count))
+maxTrack.RNA<-max(RNA.bw.ctrl.1$score,RNA.bw.ctrl.2$score,RNA.bw.ctrl.3$score,
+                  RNA.bw.ctrl.4$score,
+                  RNA.bw.ctrl.5$score,RNA.bw.si.1$score,
+                  RNA.bw.si.2$score,RNA.bw.si.3$score,
+                  RNA.bw.si.4$score)
+
+dTrack.siRNA<-DataTrack(allRNA.gr, groups=rep(c("siCtrl","siLINC00911"),c(5,4)),
+                     type=c("a", "confint"),name="RNA-seq 3d siLINC00911",
+                         col=c("#A6761D","#E78AC3"), 
+                     ylim=c(0,maxTrack.RNA))
+
+
+
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.si,aTrack.mta.peaks,
+                hmmTrack.0d,hmmTrack.2.5d ,hmmTrack.5.5d,
+                ot.H3K27me3,ot.H3K27ac,ot.H3K4me1,ot.RNA,dTrack.siRNA),
+           sizes = c(1,1.5,1,3,1,1,1,1,1.5,1.5,1.5,1.5,4), 
+                    from = start, to = end )
+
+
+pdf(paste0(out.path,"EGR3_differentiation.pdf"),width = 5, height = 5.5)
+plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.si,aTrack.mta.peaks,
+                hmmTrack.0d,hmmTrack.2.5d ,hmmTrack.5.5d,
+                ot.H3K27me3,ot.H3K27ac,ot.H3K4me1,ot.RNA,dTrack.siRNA),
+           sizes = c(1,1.5,1,3,1,1,1,1,1.5,1.5,1.5,1.5,4), 
+                    from = start, to = end )
+
+dev.off()
+
+```
+```{r chirp}
+
+#differential RNAseq siLINC00941
+chirp.00941.bw<-import.bw(con = "analysis/Figure5/peakCalling_2/bw_pooled/ChIRP_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+#cleanUp
+chirp.00941.bw<-keepSeqlevels(chirp.00941.bw, c(1:22, "X","Y"), pruning.mode="coarse")
+seqlevels(chirp.00941.bw)<-paste0("chr",seqlevels(chirp.00941.bw))
+
+chirp.lacz.bw<-import.bw(con = "analysis/Figure5/peakCalling_2/bw_pooled/LacZ_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+#cleanUp
+chirp.lacz.bw<-keepSeqlevels(chirp.lacz.bw, c(1:22, "X","Y"), pruning.mode="coarse")
+seqlevels(chirp.lacz.bw)<-paste0("chr",seqlevels(chirp.lacz.bw))
+
+
+chirp.input.bw<-import.bw(con = "analysis/Figure5/peakCalling_2/bw_pooled/Input_pooled.bw", 
+              selection=BigWigSelection(gr.oi.ens))
+#cleanUp
+chirp.input.bw<-keepSeqlevels(chirp.input.bw, c(1:22, "X","Y"), pruning.mode="coarse")
+seqlevels(chirp.input.bw)<-paste0("chr",seqlevels(chirp.input.bw))
+
+
+maxTrack.chirp<-max(chirp.00941.bw$score,chirp.lacz.bw$score, chirp.input.bw$score)
+
+dTrack.chirp.00941<-DataTrack(chirp.00941.bw, name="ChIRP", type="a",
+                       col="#1B9E77", fill.mountain=c("#1B9E77","#1B9E77"),
+                       ylim=c(0,maxTrack.chirp))
+dTrack.chirp.lacz<-DataTrack(chirp.lacz.bw, name="ChIRP", type="a",
+                       col="#7570B3", fill.mountain=c("#7570B3","#7570B3"),
+                       ylim=c(0,maxTrack.chirp))
+dTrack.chirp.input<-DataTrack(chirp.input.bw, name="ChIRP", type="a",
+                       col="#8E8E8D", fill.mountain=c("#8E8E8D","#8E8E8D"),
+                       ylim=c(0,maxTrack.chirp))
+
+ot.chirp<-OverlayTrack(trackList=list(dTrack.chirp.00941,dTrack.chirp.lacz,
+                                       dTrack.chirp.input),
+                        name = "ChIRP", lwd=2)
+
+pdf(paste0(out.path,"EGR3_differentiation_chirp.pdf"),width = 5, height = 6)
+    plotTracks(list(ideoTrack,axisTrack,biomTrack,dTrack.si,aTrack.mta.peaks,
+                hmmTrack.0d,hmmTrack.2.5d ,hmmTrack.5.5d,
+                ot.H3K27me3,ot.H3K27ac,ot.H3K4me1,ot.RNA,dTrack.siRNA,ot.chirp),
+           sizes = c(1,1.5,1,3,1,1,1,1,1.5,1.5,1.5,1.5,4,3), 
+                    from = start, to = end )
+
+dev.off()
+
+```
+
+
+##Session info
+```{r info}
+sessionInfo()
+```
+

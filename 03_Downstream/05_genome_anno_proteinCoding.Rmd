@@ -1,0 +1,264 @@
+---
+title: "Diff MTA2 ChIP seq Peak Annotations in Keratinocytes"
+author: "Uwe Schwartz"
+date: '2023-03-29'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+work.path<- "/Volumes/PromisePegasus/_Service_/S036_skin_MTA_figures/"
+knitr::opts_knit$set(root.dir =work.path)
+out.path<-paste0(work.path,"analysis/Figure6/genomeAnno_ProtCod/")
+dir.create(out.path, recursive = T, showWarnings = F)
+```
+## Dependencies & Libraries
+
+#### Load packages
+```{r libraries, message=FALSE}
+library(GenomicRanges)
+library(rtracklayer)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(ChIPseeker)
+library(org.Hs.eg.db)
+library(clusterProfiler)
+library(ggupset)
+library(ggimage)
+library(ReactomePA)
+library(enrichplot)
+library(stringr)
+library(ggpubr)
+library(ggpie)
+```
+
+
+##Analysis 
+```{r analysis}
+# make annotation Db
+#TxDb.protein.coding<-makeTxDbFromGFF("~/Annotation/GRCh38/nextflow/protein_coding.gtf",
+#                                     format = "gtf", organism="Homo sapiens")
+
+#saveDb(TxDb.protein.coding, file="~/Annotation/GRCh38/TxDb.protein.coding.sqlite")
+TxDb.protein.coding<-loadDb( file="~/Annotation/GRCh38/TxDb.protein.coding.sqlite")
+
+
+seqlevelsStyle(TxDb.protein.coding) <- "UCSC"
+
+### get diff MTA peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak)
+mta2.peaks.pre
+#remove ambigious assemblies
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+mta2.peaks
+
+
+## diff 
+diff.table<-read.delim("data/DiffBind/res_sig.txt")
+
+mta2.diff<-mta2.peaks[mta2.peaks$name %in% diff.table$peak_name]
+
+#### Peak Anno
+## show how distributed at TSS
+promoter <- getPromoters(TxDb=TxDb.protein.coding,
+                         upstream=3000, downstream=3000)
+tagMatrix <- getTagMatrix(mta2.diff, windows=promoter)
+
+plotAvgProf(tagMatrix, xlim=c(-3000, 3000),
+            xlab="Distance to TSS", ylab = "Peak Count Frequency")
+
+pdf(paste0(out.path,"MTA2_Peak_Distribution_at_TSS.pdf"), width=4, height = 2.5)
+    plotAvgProf(tagMatrix, xlim=c(-3000, 3000),
+            xlab="Distance to TSS", ylab = "Peak Count Frequency")
+dev.off()
+
+
+peaks.anno <-annotatePeak(mta2.diff,TxDb=TxDb.protein.coding,
+                        tssRegion=c(-1000, 1000), verbose=FALSE)
+
+pdf(paste0(out.path,"MTA2_anno_pie.pdf"), width=6, height = 2.5)
+    plotAnnoPie(peaks.anno)
+dev.off()
+
+
+plotAnnoBar(peaks.anno)
+
+vennpie(peaks.anno)
+
+upsetplot(peaks.anno, vennpie=TRUE)
+
+
+plotDistToTSS(peaks.anno,
+              title="Distribution of MTA2-binding loci\nrelative to TSS")
+
+
+
+
+```
+
+
+
+```{r link 2 genes}
+peak.table<-read.delim("analysis/Figure4/chromStates/MTA2_peak_table_ext.tsv")
+diffTable<-read.delim("data/DiffBind/res_table.txt")
+
+diffTable.sort<-diffTable[match(peak.table$name,diffTable$peak_name),c("log2FoldChange","padj")]
+diffTable.sort$significant<-diffTable.sort$padj<0.05
+
+colnames(diffTable.sort)<-paste0("siLINC00941_",colnames(diffTable.sort))
+
+table.list.diff<-cbind(peak.table, diffTable.sort)
+table.list.diff[which(table.list.diff$gene_symbol=="EGR3"),]
+
+write.table(table.list.diff,
+            file = paste0(out.path,"MTA2_peak_table.tsv"),
+            row.names = F,
+            col.names = T, sep="\t", quote=F)
+
+
+table.signif<-subset(table.list.diff,siLINC00941_significant)
+
+write.table(table.signif,
+            file = paste0(out.path,"diff_MTA2_peak_table.tsv"),
+            row.names = F,
+            col.names = T, sep="\t", quote=F)
+```
+
+
+```{r gene enrichment}
+
+ego <- enrichGO(gene= subset(table.list.diff,siLINC00941_significant)$gene_entrez,
+                OrgDb         = org.Hs.eg.db,
+                ont           = "BP",
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.01,
+                qvalueCutoff  = 0.05,
+                maxGSSize = 300,
+        readable      = TRUE)
+
+head(ego, 3) 
+
+barplot(ego, showCategory=10) 
+
+dotplot(ego, showCategory=5) 
+
+pdf(paste0(out.path,"/dotPlot_enrich_MTA2.pdf"), width=6, height = 2.5)
+    dotplot(ego, showCategory=5) 
+dev.off()
+
+
+write.table(data.frame(ego),
+            file=paste0(out.path,"geneEnrichment.txt"),
+            sep="\t", quote=F, row.names = F, col.names = T)
+
+
+cnetplot(ego, node_label="all",showCategory=1) 
+
+
+
+```
+
+
+```{r expression}
+
+expr<-read.delim("data/annotation/RNAseq/ENCFF902PPD_polyA_RNAseq_keratinocytes.tsv")
+head(expr)
+
+# get protein coding ones
+txsByGene <- transcriptsBy(TxDb.protein.coding, "gene")
+ens.cod<-names(txsByGene)
+
+expr.all<-expr[which(str_split_i(expr$gene_id,"\\.",1) %in% ens.cod),"TPM"]
+
+expr.mta2<-expr[which(str_split_i(expr$gene_id,"\\.",1) %in% subset(table.list.diff,siLINC00941_significant)$geneId_ensembl),"TPM"]
+
+
+
+hist(log10(expr.all+0.001), main = "all",freq = F)
+hist(log10(expr.mta2+0.001), main = "diff MTA2", freq = F)
+table(expr.all==0)
+
+sum(expr.all<0.5)/length(expr.all)
+sum(expr.mta2<0.5)/length(expr.mta2)
+
+sum(expr.all==0)/length(expr.all)
+sum(expr.mta2==0)/length(expr.mta2)
+
+
+df <- data.frame(
+ nextGene = c("expressed", "not_expressed"),
+  value = c(round(sum(expr.mta2>1)/length(expr.mta2)*100),
+            round(sum(expr.mta2<1)/length(expr.mta2)*100))
+ )
+
+labs <- paste0(df$value, "%")
+
+ggpubr::ggpie(df, "value", label = labs, 
+   lab.pos = "in", lab.font = "white",
+   fill = "nextGene", color = "white",
+   palette = c("#00AFBB", "#E7B800"))
+
+pdf(paste0(out.path,"/diffMTA_nextGene_expression.pdf"), width=4, height = 4)
+    ggpubr::ggpie(df, "value", label = labs, 
+        lab.pos = "in", lab.font = "white",
+        fill = "nextGene", color = "white",
+        palette = c("#00AFBB", "#E7B800"))
+dev.off()
+
+
+```
+
+```{r chromatin states}
+df.states<-subset(table.list.diff,siLINC00941_significant)
+
+df.mta2<-data.frame(
+    state=unlist(str_split(df.states$complete.chromState,";")),
+    state.width=unlist(str_split(df.states$chromState.width,";"))
+)
+
+states<-sapply(split(as.numeric(df.mta2$state.width), df.mta2$state),sum)
+
+chromHMM<-data.frame(chromHMM=str_split_i(names(states),"_",2),
+           percentage=round(states/sum(states)*100))
+
+
+labs <- paste0(chromHMM$percentage, "%")
+
+ggpubr::ggpie(chromHMM, "percentage", label = labs, 
+        fill = "chromHMM",
+        palette = c(rgb(233,150,122, maxColorValue=255),
+                     rgb(255,255,0, maxColorValue=255),
+                    rgb(189,183,107, maxColorValue=255),
+                    rgb(128,128,128, maxColorValue=255),
+                    rgb(255,69,0, maxColorValue=255),
+                    rgb(205,92,92, maxColorValue=255),
+                    rgb(50,205,50, maxColorValue=255),
+                    rgb(0,100,0, maxColorValue=255) ))
+
+pdf(paste0(out.path,"/diffMTA_chromatinStates.pdf"), width=5, height = 3)
+    ggpubr::ggpie(chromHMM, "percentage", label = labs, 
+        fill = "chromHMM",
+        palette = c(rgb(233,150,122, maxColorValue=255),
+                     rgb(255,255,0, maxColorValue=255),
+                    rgb(189,183,107, maxColorValue=255),
+                    rgb(128,128,128, maxColorValue=255),
+                    rgb(255,69,0, maxColorValue=255),
+                    rgb(205,92,92, maxColorValue=255),
+                    rgb(50,205,50, maxColorValue=255),
+                    rgb(0,100,0, maxColorValue=255) ))
+dev.off()
+
+```
+
+
+##Session info
+```{r info}
+sessionInfo()
+```
+

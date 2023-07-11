@@ -1,0 +1,210 @@
+---
+title: "MTA2 ChIP seq ChromStates Annotations in Keratinocytes"
+author: "Uwe Schwartz"
+date: '2023-03-22'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+work.path<- "/Volumes/PromisePegasus/_Service_/S036_skin_MTA_figures/"
+knitr::opts_knit$set(root.dir =work.path)
+out.path<-paste0(work.path,"analysis/Figure4/chromStates/")
+dir.create(out.path, recursive = T, showWarnings = F)
+```
+## Dependencies & Libraries
+
+#### Load packages
+```{r libraries, message=FALSE}
+library(rtracklayer)
+library(stringr)
+library(ggplot2)
+```
+
+
+##Analysis 
+```{r analysis}
+# load data
+#################load roadmap chromatin states
+chromStates<-import.bed("data/annotation/chromHMM/E057_15_coreMarks_hg38lift_dense.bed")
+
+################# MTA2 peaks
+extraCols_narrowPeak <- c(singnalValue = "numeric", pValue = "numeric",
+                          qValue = "numeric", peak = "integer")
+mta2.peaks.pre<- import("data/peaks/mta2_filtFDR_narrowPeaks.bed", format = "BED",
+                        extraCols = extraCols_narrowPeak)
+mta2.peaks.pre
+
+#remove ambigious assemblies
+mta2.peaks<-keepSeqlevels(mta2.peaks.pre, c(1:22, "X","Y"), pruning.mode="coarse")
+## add chr
+seqlevels(mta2.peaks)<-paste0("chr",seqlevels(mta2.peaks))
+
+mta2.peaks
+
+# save converted peaks
+save(mta2.peaks,file="data/peaks/mta2_peaks.rda" )
+
+
+##
+getAnno<-function(peak, anno){
+  main.anno<-rep("noAnnotation", length(peak))
+  complete.anno<-rep("noAnnotation", length(peak))
+  anno.width<-rep(NA, length(peak))
+  for(i in 1:length(peak)){
+    #print(i)
+    #i=2
+    ovrl.sub<-subsetByOverlaps(anno,peak[i])
+    if(length(ovrl.sub)>0){
+      if(length(ovrl.sub)==1){
+        main.anno[i]<-ovrl.sub$name
+        complete.anno[i]<-ovrl.sub$name
+        width.ovrl<-width(pintersect(findOverlapPairs(peak[i], anno)))
+        anno.width[i]<-width.ovrl
+      } else {
+        complete.anno[i]<-paste(ovrl.sub$name, collapse = ';')
+        width.ovrl<-width(pintersect(findOverlapPairs(peak[i], anno)))
+        anno.width[i]<-paste(width.ovrl, collapse = ';')
+        main.anno[i]<-ovrl.sub[which.max(width.ovrl)]$name
+      }
+    }
+  }
+  return(data.frame(main.anno, complete.anno, anno.width))
+}
+
+
+# analysis
+df.states<-getAnno(mta2.peaks, chromStates)
+rownames(df.states)<-mta2.peaks$name
+head(df.states)
+colnames(df.states)<-str_replace_all(colnames(df.states), "anno", "chromState")
+save(df.states, file=paste0(out.path,"/df.states.rda"))
+
+chip.table<-read.delim("analysis/Figure4/genomeAnno_ProtCod/MTA2_peak_table.tsv")
+
+mx.ext<-match(chip.table$name,rownames(df.states))
+chip.table2<-cbind(chip.table,
+      df.states[mx.ext,])
+
+
+write.table(chip.table2,
+            file = paste0(out.path,"MTA2_peak_table_ext.tsv"),
+            row.names = F,
+            col.names = T, sep="\t", quote=F)
+
+```
+
+```{r make plot}
+table(df.states$main.chromState)
+
+## state at MTA2 peaks 
+df.mta2<-data.frame(
+    state=unlist(str_split(df.states$complete.chromState,";")),
+    state.width=unlist(str_split(df.states$chromState.width,";"))
+)
+
+mta2.stateDist.pre<-sapply(split(as.numeric(df.mta2$state.width), df.mta2$state),sum)
+mta2.stateDist<-mta2.stateDist.pre[-which(names(mta2.stateDist.pre)=="noAnnotation")]
+
+### genome wide distribution
+chromStates.list<-split(chromStates, chromStates$name)
+chromStates.total<-sapply(chromStates.list, function(x) sum(width(x)))
+
+df<-data.frame(
+    chromState=c(names(chromStates.total),names(mta2.stateDist)),
+    percentage=c(round(chromStates.total/sum(chromStates.total)*100, digits = 1),
+                  round(mta2.stateDist/sum(mta2.stateDist)*100, digits = 1)),
+    group=c(rep("genome",length(chromStates.total)),rep("MTA2 peaks",length(mta2.stateDist)))
+)
+
+
+
+## anno for each cluster
+df$chromState<-sapply(strsplit(as.character(df$chromState),"_"),function(x) if(length(x)>1){
+    ifelse((length(x[-1])>1),paste(x[2],x[3]),x[-1])
+} else return(x))
+
+
+df$chromState<-factor(df$chromState, 
+                            levels =c("TssA","TssAFlnk","TssBiv","BivFlnk",
+                                      "TxFlnk", "Tx","TxWk","Enh","EnhG",
+                                      "EnhBiv","ZNF/Rpts","Het","ReprPC",
+                                      "ReprPCWk","Quies"))
+
+## original
+roadmap_col<-c(rgb(255,0,0, maxColorValue=255),##TssA
+               rgb(255,69,0, maxColorValue=255),##TssAFlnk
+               rgb(205,92,92, maxColorValue=255),##TssBiv
+               rgb(233,150,122, maxColorValue=255),##BivFlnk
+               rgb(50,205,50, maxColorValue=255),##TxFlnk
+               rgb(0,128,0, maxColorValue=255), ##Tx
+               rgb(0,100,0, maxColorValue=255), ##TxWk
+               rgb(255,255,0, maxColorValue=255), ##Enh
+               rgb(194,225,5, maxColorValue=255), ##EnhG
+               rgb(189,183,107, maxColorValue=255),##EnhBiv
+               rgb(102,205,170, maxColorValue=255), ##ZNF/Rpts
+               rgb(138,145,208, maxColorValue=255),##Het
+               rgb(128,128,128, maxColorValue=255), ##ReprPC
+               rgb(192,192,192, maxColorValue=255), ##ReprPCWk
+               rgb(255,255,255, maxColorValue=255)) ##Quies
+
+g<-ggplot(df, aes(group, y=percentage))
+g<-g+geom_bar(aes(fill=chromState),colour="black",stat="identity")+
+    scale_fill_manual(values = roadmap_col)+
+    xlab("")+theme_classic() + ylab("%")
+g
+
+pdf(paste0(out.path,"ChromStates_Barplot.pdf"), height = 4, width = 3)
+    print(g)
+dev.off()
+
+
+### fold change
+rel.genome<-round(chromStates.total/sum(chromStates.total)*100, digits = 1)
+rel.mta2<-round(mta2.stateDist/sum(mta2.stateDist)*100, digits = 1)
+
+enrichment.states<-log10((rel.mta2+0.05)/(rel.genome[names(rel.mta2)]+0.05))
+
+
+df.enrich<-data.frame(
+    log10FC=enrichment.states,
+    chromState=names(enrichment.states)
+)
+
+## anno for each cluster
+df.enrich$chromState<-sapply(strsplit(as.character(df.enrich$chromState),"_"),
+                             function(x) if(length(x)>1){
+    ifelse((length(x[-1])>1),paste(x[2],x[3]),x[-1])
+} else return(x))
+
+
+df.enrich$chromState<-factor(df.enrich$chromState, 
+                            levels =c("TssA","TssAFlnk","TssBiv","BivFlnk",
+                                      "TxFlnk", "Tx","TxWk","Enh","EnhG",
+                                      "EnhBiv","ZNF/Rpts","Het","ReprPC",
+                                      "ReprPCWk","Quies"))
+
+
+p<-ggplot(df.enrich, aes(x=chromState,y=log10FC))+ 
+    geom_bar(aes(fill=chromState),color="black", stat = "identity")+
+    coord_flip()+scale_x_discrete(limits = rev(levels(df.enrich$chromState)))+ 
+    theme_classic(base_size = 20)+guides(fill=F)+
+    xlab("")+ylab("log10 Enrichemnt MTA2 peaks")+
+    scale_fill_manual(values = roadmap_col)
+p
+
+pdf(paste0(out.path,"ChromStates_Enrichment.pdf"), height = 4, width = 4)
+    print(p)
+dev.off()
+
+
+```
+
+
+
+##Session info
+```{r info}
+sessionInfo()
+```
+

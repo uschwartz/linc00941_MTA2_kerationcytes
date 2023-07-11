@@ -1,0 +1,242 @@
+---
+title: "Exploratory Data MTA2 ChIP "
+author: "Uwe Schwartz"
+date: 16/09/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+work.path<- "/Volumes/PromisePegasus/_Service_/S026_siChIP_E2F6_MTA2/run_221117/RUN//"
+knitr::opts_knit$set(root.dir =work.path)
+out.path<-paste0(work.path,"/09_DESeq/MTA2")
+dir.create(out.path, recursive = T, showWarnings = F)
+```
+
+## Dependencies & Libraries
+
+#### Load packages
+```{r libraries, message=FALSE}
+library(DESeq2)
+library(RColorBrewer)
+library(ggplot2)
+library(ggrepel)
+library(stringr)
+library(pheatmap)
+load("/Users/admin///Library/Mobile Documents/com~apple~CloudDocs/Organisation_NAC/Cooperate_Design/colors/nac_palette_extend.rda")
+palette(nac_palette_extend)
+#palette(unique(c(brewer.pal(9,"Set1"),brewer.pal(8,"Set2"))))
+```
+
+##Import data
+
+```{r import}
+# load 
+# load count table from featureCounts
+count.table<-read.delim("08_Count/mta2/mta2_readCounts.csv", skip=1)
+
+# get features of name
+id<-str_remove(colnames(count.table)[7:ncol(count.table)],"_aligned.bam")
+condition<-str_split_fixed(id,"_",6)[,1]
+replica<-str_split_fixed(id,"_",6)[,2]
+antibody<- str_split_fixed(replica,"\\.",2)[,1]
+
+
+colnames(count.table)[7:ncol(count.table)]<-id
+counts<-count.table[,7:ncol(count.table)]
+rownames(counts)<-as.character(count.table$Geneid)
+
+## prepare meta Data
+#
+
+meta.DATA<-data.frame(name=colnames(counts),
+                      condition=condition,
+                      replica,
+                      antibody,
+                      row.names = colnames(counts))
+
+meta.DATA
+
+## create DESeq obj
+dds.obj <- DESeqDataSetFromMatrix(countData = counts,
+                                   colData = meta.DATA,
+                                   design= ~condition)
+
+```
+
+
+```{r checkpoint1, eval=FALSE, echo=FALSE }
+out.path.all<-paste0(out.path,"/obj")
+dir.create(out.path.all, recursive = T, showWarnings = F)
+save(dds.obj, file=paste(out.path.all,"dds.obj.rda",sep="/"))
+```
+
+## Analysis
+
+```{r Analysis PCA}
+# rlog tranformation 
+rld<-rlog(dds.obj)
+
+## plot PCA
+
+### variables
+#my.pal<-c(brewer.pal(9,"Set1"))
+my.pal<-nac_palette_extend
+object<-rld
+ntop=500
+var.symb<-"replica"
+var.col="condition"
+intgroup=c(var.col,var.symb )
+returnData=F
+###
+
+rv <- rowVars(assay(object)) 
+select <- order(rv, decreasing = TRUE)[seq_len(min(ntop,length(rv)))]
+
+pca <- prcomp(t(assay(object)[select, ]))
+percentVar <- pca$sdev^2/sum(pca$sdev^2)
+
+
+# varaince covered by PC
+barplot(percentVar, names.arg = paste0("PCA", 1:length(percentVar)),
+          ylab="variance", cex.names = 0.5)
+
+
+intgroup.df <- as.data.frame(colData(object)[,intgroup,drop = FALSE])
+group <- if (length(intgroup) > 1) {
+  factor(apply(intgroup.df, 1, paste, collapse = " : "))
+} else {
+  colData(object)[[intgroup]]
+}
+
+# show first two components
+i=1
+d <- data.frame(PCx = pca$x[, i], PCy = pca$x[, i+1], group = group, 
+                  intgroup.df, name=colData(dds.obj)[colnames(object),"name"])
+
+g<-ggplot(data = d, aes_string(x = "PCx", y = "PCy", color = var.col,
+                               shape=var.symb)) +
+      geom_point(size = 5, stroke=1.1) + theme_bw()+xlab(paste0("PC",i," : ",
+                                round(percentVar[i] * 100), "% variance"))+
+      ylab(paste0("PC",i+1,": ", round(percentVar[i+1] *100),
+                  "% variance"))+scale_fill_manual(values=my.pal)+
+    scale_color_manual(values=my.pal)
+print(g)
+
+
+```
+
+
+```{r save plots PCA, eval=FALSE, echo=FALSE }
+dir.create(paste(out.path,"/plots_exploratory/PCA",sep="/"),
+           showWarnings = F, recursive = T)
+
+
+pdf(paste(out.path,"/plots_exploratory/PCA/PCA_overview.pdf",sep="/"), 
+    width = 4, height = 4)
+  barplot(percentVar, names.arg = paste0("PCA", 1:length(percentVar)),
+          ylab="variance", cex.names = 0.5)
+dev.off()
+
+
+
+for(i in 1:(length(percentVar)-1)){
+d <- data.frame(PCx = pca$x[, i], PCy = pca$x[, i+1], group = group, 
+                  intgroup.df, name=colData(dds.obj)[colnames(object),"name"])
+  
+pdf(paste0(out.path,"/plots_exploratory/PCA/PC",i,"_and_PC",i+1,".pdf"),
+    width=4, height = 4)
+    g<-ggplot(data = d, aes_string(x = "PCx", y = "PCy", color = var.col,
+                               shape=var.symb)) +
+      geom_point(size = 5, stroke=1.1) + theme_bw()+xlab(paste0("PC",i," : ",
+                                round(percentVar[i] * 100), "% variance"))+
+      ylab(paste0("PC",i+1,": ", round(percentVar[i+1] *100),
+                  "% variance"))+scale_fill_manual(values=my.pal)+
+    scale_color_manual(values=my.pal)
+    print(g)
+dev.off()
+}
+```
+
+
+
+```{r checkpoint2, eval=FALSE, echo=FALSE }
+save(rld, file=paste(out.path,"/obj/rld.rda",sep="/"))
+
+```
+
+
+
+```{r heatamaps explorativ, fig.height=5}
+
+## similarity clustering
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+
+sampleDists <- dist(t(assay(rld)))
+
+sampleDistMatrix <- as.matrix( sampleDists )
+rownames(sampleDistMatrix) <-rld$name
+colnames(sampleDistMatrix) <- NULL
+
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows = sampleDists,
+         clustering_distance_cols = sampleDists,
+         col = colors)
+
+## 500 most variable genes
+
+rv <- rowVars(assay(rld))   
+select <- order(rv, decreasing = TRUE)[1:500]
+mat <-assay(rld)[select,]
+
+anno<-as.data.frame(colData(rld)[,c(var.col,var.symb)])
+
+anno_colors=list()
+
+lv.col<-levels(colData(dds.obj)[,var.col])
+anno_colors[[var.col]]<-c(brewer.pal(length(lv.col), "Set1"))[1:length(lv.col)]
+names(anno_colors[[var.col]])<-lv.col
+
+lv.symb<-levels(as.factor(colData(dds.obj)[,var.symb]))  
+anno_colors[[var.symb]]<-c(brewer.pal(length(lv.symb), "Set2"))[1:length(lv.symb)]
+names(anno_colors[[var.symb]])<-lv.symb
+
+
+pheatmap(mat, annotation_col = anno,scale="row", show_rownames = F,
+               annotation_colors =anno_colors)
+```
+
+
+
+```{r heatmap save plots, eval=FALSE, echo=FALSE }
+
+
+pdf(paste0(out.path,"/plots_exploratory/similarity_clustering.pdf"), 
+           width=5, height=4 ,onefile = F)
+  pheatmap(sampleDistMatrix,
+         clustering_distance_rows = sampleDists,
+         clustering_distance_cols = sampleDists,
+         col = colors)
+dev.off()
+
+
+
+pdf(paste0(out.path,"/plots_exploratory/heatmap_most_var_genes.pdf"),
+           height=5, width=5, onefile = F)
+    print(pheatmap(mat, annotation_col = anno,scale="row", show_rownames = F,
+               annotation_colors =anno_colors))
+dev.off()
+
+
+
+
+```
+
+##Session info
+```{r info}
+sessionInfo()
+```
+
+
+

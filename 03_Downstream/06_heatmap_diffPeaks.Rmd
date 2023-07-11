@@ -1,0 +1,111 @@
+---
+title: "Diff MTA2 ChIP seq Peak target genes in Keratinocytes"
+author: "Uwe Schwartz"
+date: '2023-04-03'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+work.path<- "/Volumes/PromisePegasus/_Service_/S036_skin_MTA_figures/"
+knitr::opts_knit$set(root.dir =work.path)
+out.path<-paste0(work.path,"analysis/Figure6/heatmap/")
+dir.create(out.path, recursive = T, showWarnings = F)
+```
+## Dependencies & Libraries
+
+#### Load packages
+```{r libraries, message=FALSE}
+library(pheatmap)
+library(DESeq2)
+library(stringr)
+library(RColorBrewer)
+```
+
+
+##Analysis 
+```{r analysis}
+#diff Peaks
+diffPeaks<-read.delim("analysis/Figure6/genomeAnno_ProtCod/diff_MTA2_peak_table.tsv")
+
+
+## expr at 0d series
+expr.0d<-read.delim("data/annotation/series_RNAseq/ENCFF423MWU_RNAquantification_0d.tsv")
+expr.0.sel<-expr.0d[match(diffPeaks$geneId_ensembl,
+                  str_split_i(expr.0d$gene_id,"\\.",1)),"TPM"]
+
+
+# load matrix for heatmap
+load("data/DiffBind/rld.rda")
+
+colData(rld)
+
+## heatmap of significant genes selected samples
+mat.red<-assay(rld)[diffPeaks$name,]
+rownames(mat.red)<- diffPeaks$gene_symbol
+#deduplicate names
+rownames(mat.red)[duplicated(rownames(mat.red))]<-paste(
+    rownames(mat.red)[duplicated(rownames(mat.red))],"2",sep=".")
+#deduplicate names 3
+rownames(mat.red)[duplicated(rownames(mat.red))]<-str_replace_all(
+    rownames(mat.red)[duplicated(rownames(mat.red))],"2","3")
+
+
+## col annotation
+annoCol<-data.frame(condition=colData(rld)[,c("condition")],row.names =colnames(rld))
+
+## row annnotation
+annoRow<-data.frame(chromHMM=str_split_i(diffPeaks$main.chromState,"_",2),
+                    dist2TSS=abs(diffPeaks$distanceToTSS),
+                    log2TPM_0d=log2(expr.0.sel+0.01),
+           row.names = rownames(mat.red))
+
+## annnotation colors
+annotation_cols<-list(
+    condition=c(siCtrl="#357EBD",siLINC00941="#D43F39" ),
+    chromHMM=c(Enh=rgb(255,255,0, maxColorValue=255),
+               EnhBiv=rgb(189,183,107, maxColorValue=255),
+               BivFlnk=rgb(233,150,122, maxColorValue=255),
+               ReprPC=rgb(128,128,128, maxColorValue=255),
+               TssAFlnk=rgb(255,69,0, maxColorValue=255),
+               TssBiv=rgb(205,92,92, maxColorValue=255)),
+    dist2TSS=c( "#5CB85B","white"),
+    log2TPM_0d=c("white","#FEA22B")
+)
+  
+print(pheatmap(mat.red[,order(colnames(mat.red))],scale="row", 
+               annotation_col = annoCol,
+               annotation_row = annoRow,
+               cluster_cols = F,
+               show_rownames  = T,
+               show_colnames = F,
+               treeheight_row=0,
+               annotation_colors = annotation_cols,
+               color=colorRampPalette(rev(brewer.pal(n = 7, name ="RdBu")))(100))
+      )
+
+
+# pdf(paste0(out.path,"heatmap_diffPeaks.pdf"))
+#     print(pheatmap(mat.red[,order(colnames(mat.red))],scale="row", 
+#                annotation_col = annoCol,
+#                annotation_row = annoRow,
+#                cluster_cols = F,
+#                show_rownames  = T,
+#                show_colnames = F,
+#                treeheight_row=0,
+#                annotation_colors = annotation_cols,
+#                color=colorRampPalette(rev(brewer.pal(n = 7, name ="RdBu")))(100))
+#       )
+# dev.off()
+
+```
+
+
+
+
+##Session info
+```{r info}
+sessionInfo()
+```
+

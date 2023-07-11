@@ -1,0 +1,102 @@
+---
+title: "Diff MTA2 ChIP seq Peak target genes in Keratinocytes"
+author: "Uwe Schwartz"
+date: '2023-04-03'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+work.path<- "/Volumes/PromisePegasus/_Service_/S036_skin_MTA_figures/"
+knitr::opts_knit$set(root.dir =work.path)
+out.path<-paste0(work.path,"analysis/Figure6/targetGenes/")
+dir.create(out.path, recursive = T, showWarnings = F)
+```
+## Dependencies & Libraries
+
+#### Load packages
+```{r libraries, message=FALSE}
+library(stringr)
+library(ggpubr)
+
+```
+
+
+##Analysis 
+```{r analysis}
+#RNAseq of differentiation series
+expr.0d<-read.delim("data/annotation/series_RNAseq/ENCFF423MWU_RNAquantification_0d.tsv")
+expr.5d<-read.delim("data/annotation/series_RNAseq/ENCFF379PNP_RNAquantification_5.5d.tsv")
+
+#diff Peaks
+diffPeaks<-read.delim("analysis/Figure6/genomeAnno_ProtCod/diff_MTA2_peak_table.tsv")
+
+expr.0.sel<-expr.0d[match(unique(diffPeaks$geneId_ensembl),
+                  str_split_i(expr.0d$gene_id,"\\.",1)),]
+
+expr.5.sel<-expr.5d[match(unique(diffPeaks$geneId_ensembl),
+                  str_split_i(expr.5d$gene_id,"\\.",1)),]
+
+## difference in expression
+chng.expr<-log2(expr.5.sel$TPM + 0.01)-log2(expr.0.sel$TPM + 0.01) 
+names(chng.expr)<-str_split_i(expr.5.sel$gene_id,"\\.",1)
+
+#linc00941 d3 RNAseq
+lncRNA.diff<-read.delim("data/RNAseq_linc00941/res_table.txt")
+
+lncRNA.diff.sel<-lncRNA.diff[match(unique(diffPeaks$geneId_ensembl),
+                            lncRNA.diff$EnsemblID),]
+
+df.plot<-data.frame(gene=lncRNA.diff.sel$symbol,
+           change.differentiation=chng.expr,
+           pval.lncRNA=(-log10(lncRNA.diff.sel$padj)),
+           log2FC.lncRNA=lncRNA.diff.sel$log2FoldChange,
+           TPM.0d=log2(expr.0.sel$TPM + 0.01),
+           TPM.5.5d=log2(expr.5.sel$TPM + 0.01)   
+           )
+
+df.plot$pval.lncRNA[is.na(df.plot$pval.lncRNA)]<-0
+df.plot$log2FC.lncRNA[is.na(df.plot$log2FC.lncRNA)]<-0
+
+# Show labels according to some criteria: x and y values
+ggscatter(df.plot, x = "change.differentiation", y = "pval.lncRNA",
+       fill = "log2FC.lncRNA", color = "black", shape = 21,
+       label = "gene", repel = TRUE,size = 5,
+       label.select = list(criteria = "abs(`x`) > 2 & `y` > 2"))+
+        scale_fill_gradient2(low = "#357EBD",mid = "white",
+                             high = "#D43F39",midpoint = 0) +
+        geom_hline(yintercept=2, linetype="dashed")+
+        geom_vline(xintercept=c(-2,2), linetype="dashed")+
+        xlab("expression change during differentiation log2(5.5d/0d) [TPM]")+
+        ylab("-log10(p-value) siLINC00941 d3 RNA-seq")+
+     scale_x_continuous(breaks=seq(-2,6,2))
+    
+pdf(paste0(out.path,"expressionChange_diffPeasks_targets.pdf"), height = 5,
+    width = 5)
+    ggscatter(df.plot, x = "change.differentiation", y = "pval.lncRNA",
+       fill = "log2FC.lncRNA", color = "black", shape = 21,
+       label = "gene", repel = TRUE,size = 5,
+       label.select = list(criteria = "abs(`x`) > 2 & `y` > 2"))+
+        scale_fill_gradient2(low = "#357EBD",mid = "white",
+                             high = "#D43F39",midpoint = 0) +
+        geom_hline(yintercept=2, linetype="dashed")+
+        geom_vline(xintercept=c(-2,2), linetype="dashed")+
+        xlab("expression change during differentiation log2(5.5d/0d) [TPM]")+
+        ylab("-log10(p-value) siLINC00941 d3 RNA-seq")+
+     scale_x_continuous(breaks=seq(-2,6,2))
+dev.off()    
+
+
+
+
+```
+
+
+
+
+##Session info
+```{r info}
+sessionInfo()
+```
+

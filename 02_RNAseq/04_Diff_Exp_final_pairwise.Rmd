@@ -1,0 +1,275 @@
+---
+title: "Differential Expression RNAseq siLINC00941"
+author: "Uwe Schwartz"
+date: "31/03/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+work.path<- "/Volumes/PromisePegasus/_Service_/S015_skin_RNAseq/analysis/"
+knitr::opts_knit$set(root.dir =work.path)
+#setwd(work.path)
+out.path<-paste0(work.path,"/DiffExp_filtSamps_pair_3d_final/")
+dir.create(out.path, recursive = T, showWarnings = F)
+```
+
+## Dependencies & Libraries
+
+#### Load packages
+```{r libraries, message=FALSE}
+library(DESeq2)
+library(RColorBrewer)
+library(ggplot2)
+library(pheatmap)
+library(ggrepel)
+palette(unique(c(brewer.pal(9,"Set1"),brewer.pal(8,"Set2"))))
+```
+
+##Import data
+
+First load DESeq2 object generated in exploratory ananylsis and then perform differential gene expression analysis 
+```{r DESeq obj}
+# load 
+load(file=paste(work.path,"obj/rld.rda",sep="/"))
+load(file="obj/dds.obj.rda")
+
+# meta data
+colData(dds.obj)
+
+##remove samples
+dds.red<-dds.obj[,-which(colnames(dds.obj)  %in% c("si00941_d3_2"))]
+dds.red2<-dds.red[,dds.red$time=="d3"]
+#dds.red<-dds.obj
+colData(dds.red2)
+
+#design
+design(dds.red2)<-~condition
+
+## differential gene expression Wald test
+dds.diff<-DESeq(dds.red2)
+
+### get annotation of genes
+biotype<-read.delim("/Users//admin/Annotation/GRCh38/all_genes_INFO.txt")
+
+mx<-match(rownames(rowData(dds.diff)),biotype$ensembl_gene_id)
+rowData(dds.diff)$biotype<-biotype$biotype[mx]
+rowData(dds.diff)$symbol<-biotype$symbol[mx]
+rowData(dds.diff)$EnsemblID<-biotype$ensembl_gene_id[mx]
+
+dds.diff
+resultsNames(dds.diff)
+#### differential analysis
+res<-results(dds.diff,contrast = c("condition","si00941","siNgCtrl"))
+
+summary(res,alpha=0.05)
+
+
+```
+
+
+```{r checkpoint1, eval=FALSE, echo=FALSE }
+dir.create(paste(out.path,"obj/",sep="/"), recursive = T, showWarnings = F)
+
+save(dds.diff, file=paste(out.path,"obj/dds.diff.rda",sep="/"))
+
+```
+
+## inspection
+
+```{r results LRT}
+
+#MA plot before shrinkage
+max.lfc<-max(abs(res$log2FoldChange),na.rm = T)
+
+DESeq2::plotMA(res,ylim = c(-max.lfc, max.lfc), cex=0.5,
+               colSig=1)  
+#shrinkage
+res.shr <- lfcShrink(dds.diff,contrast =c("condition","si00941","siNgCtrl"), 
+                     res=res, type = "normal") 
+
+max.lfc<-max(abs(res.shr$log2FoldChange),na.rm = T)
+
+DESeq2::plotMA(res.shr,ylim = c(-max.lfc, max.lfc), cex=0.5,colSig=1, alpha=0.05)
+    abline(h=c(-1,1), lty=2)
+
+    
+## pVal_distribution
+
+hist(res$pvalue[res$baseMean > 1], breaks = 0:20/20,
+       col = "grey50", border = "white", xlab="p-Value", main="pVal distribution")
+     
+
+
+# get Gene annotation
+res<-cbind(res.shr,rowData(dds.diff)[rownames(res),
+                                    c("EnsemblID","biotype","symbol")])
+    
+head(res[order(res$padj),])
+
+res[res$symbol=="EGR3",]
+
+### significant hits
+res.sig<-subset(res, padj<0.05 )
+
+#significant hits up regulated
+table(res.sig$log2FoldChange>0)
+
+
+## heatmap of significant genes 
+mat<-assay(rld)[rownames(res.sig),]
+rownames(mat)<- res.sig$symbol
+anno<-as.data.frame(colData(rld)[,c("condition", "time")])
+ordCol<-colData(dds.diff)[order(paste(colData(dds.diff)$time,
+                              colData(dds.diff)$condition,
+                              colData(dds.diff)$replica)),"ID"]  
+print(pheatmap(mat[,ordCol],scale="row", annotation_col = anno,
+               show_rownames  = F, cluster_cols = F) )
+
+
+## volcano plot
+df<-data.frame(subset(res, !is.na(res$padj)))
+## set thresholds
+
+
+df$signif<-df$EnsemblID %in% rownames(res.sig)
+
+
+g<-ggplot(df, aes(log2FoldChange,log10(padj)*c(-1), lable=symbol,p.adj=padj,
+                  logFC=round(log2FoldChange,digits = 3),
+                  id=EnsemblID))+
+    geom_point(aes(color=signif))+theme_bw()+ylab("-log10(p-value)")+
+    scale_color_manual(values=c("grey","red"))+
+    scale_shape_manual(values=c(19,23))
+
+
+g<-ggplot(df, aes(log2FoldChange,log10(padj)*c(-1), label=symbol,p.adj=padj,
+                  logFC=round(log2FoldChange,digits = 3),
+                  id=EnsemblID))+
+    geom_point(color="grey")+
+    geom_point(data = df[df$signif,],aes(log2FoldChange,log10(padj)*c(-1)),
+               color="red")+
+    theme_bw()+ylab("-log10(p-value)")
+
+
+
+
+#get top 20 p-adjusted value
+df.sign<-subset(df, signif)
+df.top<-df.sign[order(df.sign$padj)[1:20],]
+
+
+print(g+geom_text_repel(data = df.top,
+                        aes(label = symbol),
+                        size = 3,
+                        box.padding = unit(0.3, "lines"),
+                        point.padding = unit(0.2, "lines")))
+
+
+
+```
+
+
+```{r diff exp save data, eval=FALSE, echo=FALSE }
+
+path.plots=paste(out.path,"/plots",sep="/")
+dir.create(path.plots, showWarnings = F, recursive = T)
+
+path.obj=paste(out.path,"/obj",sep="/")
+
+
+## pVal_distribution
+pdf(paste0(path.plots,"/pVal_histogram.pdf"), width=5,height = 5)
+    hist(res$pvalue[res$baseMean > 1], breaks = 0:20/20,
+       col = "grey50", border = "white", xlab="p-Value", main="pVal distribution")
+dev.off()
+
+pdf(paste0(path.plots,"/MAplot.pdf"), width=5,height = 5)
+    DESeq2::plotMA(res.shr,ylim = c(-max.lfc, max.lfc), cex=0.5,colSig=1, alpha=0.05)
+    abline(h=c(-1,1), lty=2)
+dev.off()
+
+save(res, file=paste0(path.obj,"/res.rda"))
+write.table(res[order(res$pvalue),], file=paste0(out.path,"/res_table.txt"),
+            row.names = F,quote=F, sep="\t")
+
+
+############### glimma ## eploratory
+  library(Glimma)
+  library(edgeR)
+  
+  
+  res.df<-as.data.frame(res)
+  res.df$log10MeanNormCount<-log10(res.df$baseMean)
+  
+  # filter not expressed genes
+  idx<-rowSums(counts(dds.diff))>5
+  res.df.fil<-(res.df[idx,])
+  
+  res.df.fil$padj[is.na(res.df.fil$padj)]<-1
+  
+  #get stat
+  wx<-which(rownames(res.df.fil) %in% rownames(res.sig))
+  stat<-rep(0,nrow(res.df.fil))
+  stat[wx]<-rep(1,length(wx))
+  
+  
+  glMDPlot(res.df.fil, 
+           xval = "log10MeanNormCount",
+           yval="log2FoldChange",
+           counts=counts(dds.diff, normalized=T)[idx,],
+           anno=data.frame(GeneID=rownames(dds.diff)[idx]),
+           groups=paste(dds.diff$time,dds.diff$condition),
+           samples=colnames(dds.diff),
+           display.columns = c("symbol", 
+                               "log2FoldChange","padj","EnsemblID","biotype"),
+           status = stat,
+           path = out.path)
+  
+##########################
+save(res.sig, file=paste0(path.obj,"/res.sig.rda"))
+
+
+
+
+### significant  
+write.table(res.sig[order(res.sig$padj),],
+              file=paste0(out.path,"/signif_genes.txt"), sep="\t",
+              quote=F, col.names=T, row.names = F)
+
+
+### heatmap
+
+pdf(paste0(path.plots,"/heatmap_signif_genes.pdf"),
+    height=5, width = 5, onefile = F)
+    print(pheatmap(mat[,ordCol],scale="row", annotation_col = anno,
+               show_rownames  = F, cluster_cols = F) )
+dev.off()
+ 
+
+
+#### volcano
+pdf(paste0(path.plots,"/volcano.pdf"), width=5, height = 5)
+    print(g+geom_text_repel(data = df.top,
+                        aes(label = symbol),
+                        size = 3,
+                        box.padding = unit(0.3, "lines"),
+                        point.padding = unit(0.2, "lines")))
+
+dev.off()
+#### html
+
+
+```
+
+
+##Session info
+```{r info}
+sessionInfo()
+
+
+```
+
+
+

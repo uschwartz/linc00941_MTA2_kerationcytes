@@ -1,0 +1,180 @@
+---
+title: "Diff expr EGR3 target genes in Keratinocytes"
+author: "Uwe Schwartz"
+date: '2023-04-03'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+work.path<- "/Volumes/PromisePegasus/_Service_/S036_skin_MTA_figures/"
+knitr::opts_knit$set(root.dir =work.path)
+out.path<-paste0(work.path,"analysis/Figure6/heatmap_expr/")
+dir.create(out.path, recursive = T, showWarnings = F)
+```
+## Dependencies & Libraries
+
+#### Load packages
+```{r libraries, message=FALSE}
+library(pheatmap)
+library(DESeq2)
+library(stringr)
+library(RColorBrewer)
+```
+
+
+##Analysis 
+```{r analysis}
+#diff Expr
+load("../S015_skin_RNAseq/analysis/obj/rld.rda")
+load("../S015_skin_RNAseq/analysis/DiffExp_filtSamps_kd_final/obj/dds.diff.rda")
+res.d2<-read.delim("../S015_skin_RNAseq/analysis/DiffExp_filtSamps_pair_2d_final/res_table.txt")
+
+expr.table<-read.delim("data/RNAseq_linc00941/res_table.txt")
+
+targets<-expr.table[which(expr.table$symbol %in% c("EGR3","USP2", "PLK3", 
+                                                   "TRPV3", "CLN8",
+                                          "YOD1", "CPA4", "HMOX1", "GLTP",
+                                          "PSALPL1", "SLC37A2","SMPD3",
+                                          "GSDMA","GJB4","SERTAD1",
+                                          "TMEM86A","ESYT3","TMEM40",
+                                          "SEMA7A","HSPB8", "PPIF")),]
+
+
+colData(rld)
+
+## heatmap of significant genes selected samples
+mat.red<-assay(rld)[targets$EnsemblID,colnames(dds.diff)]
+rownames(mat.red)<- targets$symbol
+
+
+## col annotation
+annoCol<-data.frame(condition=colData(rld)[colnames(dds.diff),
+                                           c("condition")],
+                    time=colData(rld)[colnames(dds.diff),
+                                           c("time")],
+                    row.names =colnames(dds.diff))
+
+
+
+## annnotation colors
+annotation_cols<-list(
+    condition=c(siNgCtrl="#357EBD",si00941 ="#D43F39" ),
+    time=c(d2="#FEA22B",d3="#5CB85B"),
+    d3.significant=c("#8E8E8D","#8E8E8D"),
+    d2.significant=c("white","#8E8E8D")
+)
+
+
+ordCol<-c(grep("siNgCtrl_d2",colnames(dds.diff),value = T),
+  grep("si00941_d2",colnames(dds.diff),value = T),
+  grep("siNgCtrl_d3",colnames(dds.diff),value = T),
+  grep("si00941_d3",colnames(dds.diff),value = T)
+)  
+
+
+## row annnotation
+annoRow<-data.frame(d3.significant=as.numeric(targets$padj<0.05),
+                    d2.significant=as.numeric(res.d2[match(targets$EnsemblID,
+                                                res.d2$EnsemblID),"padj"]<0.05),
+           row.names = targets$symbol)
+
+
+print(pheatmap(mat.red[,ordCol],scale="row", 
+               annotation_col = annoCol,
+               annotation_row  = annoRow,
+               show_rownames  = T,
+               show_colnames = F,
+               cluster_rows = T,
+               cluster_cols = F,
+               treeheight_row = 0,
+               annotation_colors = annotation_cols,
+               color=colorRampPalette(rev(brewer.pal(n = 7, name ="RdBu")))(100),
+               breaks=seq(-1.5,1.5,length.out=101)
+      ))
+
+
+
+
+# pdf(paste0(out.path,"heatmap_EGR3_targets.pdf"), height = 3)
+#     print(pheatmap(mat.red[,ordCol],scale="row", 
+#                annotation_col = annoCol,
+#                show_rownames  = T,
+#                show_colnames = F,
+#                cluster_rows = T,
+#                cluster_cols = F,
+#                treeheight_row = 0,
+#                annotation_colors = annotation_cols,
+#                color=colorRampPalette(rev(brewer.pal(n = 7, name ="RdBu")))(100),
+#                 breaks=seq(-1.5,1.5,length.out=101)
+#       ))
+# dev.off()
+
+# pdf(paste0(out.path,"heatmap_EGR3_targets_with_signif.pdf"), height = 4)
+#     print(pheatmap(mat.red[,ordCol],scale="row", 
+#                annotation_col = annoCol,
+#                annotation_row  = annoRow,
+#                show_rownames  = T,
+#                show_colnames = F,
+#                cluster_rows = T,
+#                cluster_cols = F,
+#                treeheight_row = 0,
+#                annotation_colors = annotation_cols,
+#                color=colorRampPalette(rev(brewer.pal(n = 7, name ="RdBu")))(100),
+#                breaks=seq(-1.5,1.5,length.out=101)
+#       ))
+# 
+# dev.off()
+```
+
+```{r heatmap series}
+
+## expr at 0d series
+expr.0d<-read.delim("data/annotation/series_RNAseq/ENCFF423MWU_RNAquantification_0d.tsv")
+expr.0.sel<-expr.0d[match(targets$EnsemblID,
+                  str_split_i(expr.0d$gene_id,"\\.",1)),"TPM"]
+
+
+expr.5.5d<-read.delim("data/annotation/series_RNAseq/ENCFF379PNP_RNAquantification_5.5d.tsv")
+expr.5.5.sel<-expr.5.5d[match(targets$EnsemblID,
+                  str_split_i(expr.5.5d$gene_id,"\\.",1)),"TPM"]
+
+expr.2.5d<-read.delim("data/annotation/series_RNAseq/ENCFF137YHI_RNAquantification_2.5d.tsv")
+
+expr.2.5.sel<-expr.2.5d[match(targets$EnsemblID,
+                  str_split_i(expr.2.5d$gene_id,"\\.",1)),"TPM"]
+
+
+mx.series<-cbind(d0=log2(expr.0.sel+0.01),
+      d2.5=log2(expr.2.5.sel+0.01),
+      d5.5=log2(expr.5.5.sel+0.01))
+
+row.names(mx.series)<-targets$symbol
+
+print(pheatmap(mx.series,
+               cluster_cols = F,
+               scale="row",
+               treeheight_row = 0,
+               color=colorRampPalette(rev(brewer.pal(n = 7, name ="RdBu")))(100)
+)
+)
+# 
+# pdf(paste0(out.path,"heatmap_EGR3_targets_ENCODEseries.pdf"), height = 3, width=4)
+#     print(pheatmap(mx.series,
+#                cluster_cols = F,
+#                scale="row",
+#                treeheight_row = 0,
+#                color=colorRampPalette(rev(brewer.pal(n = 7, name ="RdBu")))(100)
+#     ))
+# dev.off()
+
+```
+
+
+
+##Session info
+```{r info}
+sessionInfo()
+```
+
